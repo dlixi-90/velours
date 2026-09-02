@@ -1,19 +1,33 @@
 import React, { useEffect, useState } from "react";
 import Title from "../components/Title";
 import { useAppContext } from "../context/AppContext";
-import { dummyOrdersData } from "../assets/data";
 
 const MyOrders = () => {
-  const { currency, user } = useAppContext();
+  const { currency, user, axios, getToken } = useAppContext();
   const [orders, setOrders] = useState([]);
 
-  const loadOrdersData = () => {
-    setOrders(dummyOrdersData);
+  const loadOrdersData = async () => {
+    if (!user) return;
+
+    try {
+      const { data } = await axios.post(
+        "/api/orders/userorders",
+        {},
+        {
+          headers: { Authorization: `Bearer ${await getToken()}` },
+        },
+      );
+      if (data.success) {
+        setOrders(data.orders);
+      }
+    } catch (error) {
+      console.log(error);
+    }
   };
 
   useEffect(() => {
     if (user) {
-      loadOrdersData;
+      loadOrdersData();
     }
   }, [user]);
   return (

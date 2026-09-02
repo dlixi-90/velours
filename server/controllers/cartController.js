@@ -1,3 +1,4 @@
+import { isObjectIdOrHexString } from "mongoose";
 import User from "../models/User.js";
 
 // Adding to Cart  [POST '/add']
@@ -6,11 +7,11 @@ export const addToCart = async (req, res) => {
     const { itemId, size } = req.body;
     const { userId } = req.auth();
     const userData = await User.findById(userId);
-    const cartData = await userData.cartData;
+    const cartData = (await userData.cartData) || {}; //Initialize if undefined
 
     if (cartData[itemId]) {
-      if (cartData[itemzid][size]) {
-        cartData[itemzid][size] += 1;
+      if (cartData[itemId][size]) {
+        cartData[itemId][size] += 1;
       } else {
         cartData[itemId][size] = 1;
       }
@@ -33,11 +34,15 @@ export const updateCart = async (req, res) => {
     const { userId } = req.auth();
 
     const userData = await User.findById(userId);
-    const cartData = await userData.cartData;
+    const cartData = (await userData.cartData) || {};
 
     if (quantity <= 0) {
-      delete cartData[itemId];
+      delete cartData[itemId][size];
+      if (Object.keys(cartData[itemId]).length === 0) {
+        delete cartData[itemId];
+      }
     } else {
+      cartData[itemId] = cartData[itemId] || {};
       cartData[itemId][size] = quantity;
     }
 

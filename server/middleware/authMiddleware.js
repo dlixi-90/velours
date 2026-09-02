@@ -29,7 +29,7 @@ export const authUser = async (req, res, next) => {
     next();
   } catch (error) {
     console.log(error);
-    return res.json({ success: false, massage: error.message });
+    return res.json({ success: false, message: error.message });
   }
 };
 

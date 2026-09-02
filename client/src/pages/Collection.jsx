@@ -173,10 +173,7 @@ const Collection = () => {
                   <SearchX size={24} strokeWidth={1.8} />
                 </div>
                 <p className="capitalize text-base font-semibold text-secondary">
-                  No products found for selected filters
-                </p>
-                <p className="mt-2 max-w-sm text-sm text-gray-50">
-                  Try changing your search or adjusting the selected filters.
+                  No products found
                 </p>
               </div>
             )}

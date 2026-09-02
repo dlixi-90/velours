@@ -1,19 +1,48 @@
 import React, { useEffect, useState } from "react";
 import { useAppContext } from "../../context/AppContext";
-import { assets, dummyDashboardData } from "../../assets/data";
+import { assets } from "../../assets/data";
 import toast from "react-hot-toast";
 
 const Dashboard = () => {
-  const { user, currency } = useAppContext();
+  const { user, currency, axios, getToken } = useAppContext();
   const [dashboardData, setDashboardData] = useState({
     orders: [],
     totalOrders: 0,
     totalRevenue: 0,
   });
 
-  const getDashboardData = () => {
-    // Giữ nguyên logic backend / dữ liệu cũ
-    setDashboardData(dummyDashboardData);
+  const getDashboardData = async () => {
+    try {
+      const { data } = await axios.get("/api/orders/", {
+        headers: { Authorization: `Bearer ${await getToken()}` },
+      });
+      if (data.success) {
+        setDashboardData(data.dashboardData);
+      } else {
+        toast.error(data.message);
+      }
+    } catch (error) {
+      toast.error(error.message);
+    }
+  };
+
+  const statusHandler = async (e, orderId) => {
+    try {
+      const { data } = await axios.post(
+        "/api/orders/status",
+        { orderId, status: e.target.value },
+        {
+          headers: { Authorization: `Bearer ${await getToken()}` },
+        },
+      );
+      if (data.success) {
+        await getDashboardData();
+        toast.success(data.message);
+      }
+    } catch (error) {
+      console.log(error);
+      toast.error(error.message);
+    }
   };
 
   useEffect(() => {
@@ -107,66 +136,94 @@ const Dashboard = () => {
                   <h5 className="medium-14 font-semibold text-slate-700">
                     Order ID:
                   </h5>
-                  <p className="text-gray-400 text-xs break-all font-mono">
+                  <p className="text-gray-400 text-sm break-all font-mono">
                     {order._id}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-x-6 gap-y-2">
                   <div className="flex items-center gap-x-2">
                     <h5 className="medium-14 font-medium text-slate-600">
-                      Payment Status:
+                      Customer:
                     </h5>
                     <span
-                      className={`px-2 py-0.5 rounded text-xs font-medium ${order.isPaid ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}
+                      className={`px-2 py-0.5 rounded text-sm font-medium ${order.isPaid ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}
                     >
-                      {order.isPaid ? "Done" : "Pending"}
+                      {order.address.firstName} {order.address.lastName}
                     </span>
                   </div>
                   <div className="flex items-center gap-x-2">
                     <h5 className="medium-14 font-medium text-slate-600">
-                      Method:
+                      Phone:
                     </h5>
-                    <p className="text-gray-500 text-xs uppercase font-medium">
-                      {order.paymentMethod}
-                    </p>
+                    <span
+                      className={`px-2 py-0.5 rounded text-sm font-medium ${order.isPaid ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}
+                    >
+                      {order.address.phone}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-x-2">
+                    <h5 className="medium-14 font-medium text-slate-600">
+                      Address:
+                    </h5>
+                    <span
+                      className={`px-2 py-0.5 rounded text-sm font-medium ${order.isPaid ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}
+                    >
+                      {order.address.street}, {order.address.city},{""}{" "}
+                      {order.address.state}, {order.address.country},{""}{" "}
+                      {order.address.zipCode}
+                    </span>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-x-6 gap-y-2">
+                <div clsassName="flex gap-4">
+                  <div className="flex items-center gap-x-2">
+                    <h5 className="medium-14 font-medium text-slate-600">
+                      Payment Status:
+                    </h5>
+                    <p className="text-slate-800 text-sm font-bold">
+                      {order.isPaid ? "Done" : "Pending"}
+                    </p>
+                    <div className="flex items-center gap-x-2">
+                      <h5 className="medium-14 font-medium text-slate-600">
+                        Method:
+                      </h5>
+                      <p className="text-slate-800 text-sm font-bold">
+                        {order.paymentMethod}
+                      </p>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-x-2">
                     <h5 className="medium-14 font-medium text-slate-600">
                       Date:
                     </h5>
-                    <p className="text-gray-500 text-sm">
+                    <p className="text-slate-800 text-sm font-bold">
                       {new Date(order.createdAt).toDateString()}
                     </p>
-                  </div>
-                  <div className="flex items-center gap-x-2">
-                    <h5 className="medium-14 font-medium text-slate-600">
-                      Amount:
-                    </h5>
-                    <p className="text-slate-800 text-xs font-bold">
-                      {order.amount}
-                      {currency}
-                    </p>
+                    <div className="flex items-center gap-x-2">
+                      <h5 className="medium-14 font-medium text-slate-600">
+                        Amount:
+                      </h5>
+                      <p className="text-slate-800 text-sm font-bold">
+                        {order.amount}.000{currency}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
 
               <div className="flex items-center justify-between lg:justify-end gap-4 w-full lg:w-auto pt-2 lg:pt-0 border-t lg:border-t-0 border-gray-100">
-                <div className="flex items-center gap-2">
-                  <h5 className="medium-14 font-medium text-slate-600">
-                    Status:
-                  </h5>
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 border border-slate-200/60 rounded-full">
-                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                    <p className="text-xs font-medium text-slate-700">
-                      {order.status}
-                    </p>
-                  </div>
-                </div>
-                <button className="btn-secondary !py-1.5 !px-3 !text-xs rounded-md shadow-sm hover:bg-slate-800 transition-colors">
-                  Track Order
-                </button>
+                <h5 className="medium-14 font-medium text-slate-600">
+                  Status:
+                </h5>
+                <select
+                  onChange={(e) => statusHandler(e, order._id)}
+                  value={order.status}
+                  className="text-sm font-semibold p-1 ring-1 ring-slate-900/5 rounded max-w-36 bg-primary"
+                >
+                  <option value="Order Placed">Order Placed</option>
+                  <option value="Packing">Packing</option>
+                  <option value="Shipping">Shipping</option>
+                  <option value="Delivery">Delivered</option>
+                </select>
               </div>
             </div>
           </div>

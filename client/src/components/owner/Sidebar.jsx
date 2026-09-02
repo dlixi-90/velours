@@ -1,11 +1,11 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { useAppContext } from "../../context/AppContext";
 import { assets } from "../../assets/data";
-import { Link, NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet, Navigate } from "react-router-dom";
 import { UserButton } from "@clerk/react";
 
 const Sidebar = () => {
-  const { navigate, isOwner, user } = useAppContext();
+  const { isOwner, user } = useAppContext();
 
   const navItems = [
     {
@@ -25,11 +25,17 @@ const Sidebar = () => {
     },
   ];
 
-  useEffect(() => {
-    if (!isOwner) {
-      navigate("/");
-    }
-  }, [isOwner]);
+  if (isOwner === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-gray-300 border-t-black rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isOwner) {
+    return <Navigate to="/" replace />;
+  }
 
   return (
     <div>

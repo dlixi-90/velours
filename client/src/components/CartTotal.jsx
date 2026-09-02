@@ -1,11 +1,15 @@
-import React, { useEffect, useState } from "react";
-import toast from "react-hot-toast";
+import { useMemo } from "react";
 import { useAppContext } from "../context/AppContext";
-import { dummyAddress } from "../assets/data";
 
-const CartTotal = () => {
+const CartTotal = ({
+  currentStep,
+  onCheckout,
+  onBack,
+  isSubmitting = false,
+}) => {
   const {
-    navigate,
+    products,
+    cartItems,
     currency,
     method,
     setMethod,
@@ -14,110 +18,200 @@ const CartTotal = () => {
     getCartAmount,
   } = useAppContext();
 
-  const [addresses, setAddresses] = useState(dummyAddress);
-  const [showAddess, setShowaddress] = useState(false);
-  const [selectedAddress, setSelectedAddress] = useState(dummyAddress[0]);
+  const orderItems = useMemo(() => {
+    const result = [];
+
+    for (const productId in cartItems) {
+      const product = products.find((item) => item._id === productId);
+
+      if (!product) continue;
+
+      for (const size in cartItems[productId]) {
+        const quantity = Number(cartItems[productId][size]);
+
+        if (quantity > 0) {
+          result.push({
+            product,
+            size,
+            quantity,
+          });
+        }
+      }
+    }
+
+    return result;
+  }, [products, cartItems]);
+
+  const subtotal = getCartAmount();
+  const shipping = subtotal > 0 ? delivery_charges : 0;
+  const total = subtotal + shipping;
+
+  const formatPrice = (value) => {
+    return `${Number(value).toLocaleString("vi-VN")}.000 ${currency}`;
+  };
 
   return (
     <div>
-      <h3 className="bold-22">
-        Order Details
-        <span className="bold-14 text-secondary">
-          {" "}
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="bold-22">
+          {currentStep === 1 ? "Cart Total" : "Order Details"}
+        </h3>
+
+        <span className="whitespace-nowrap bold-14 text-secondary">
           ({getCartCount()}) Items
         </span>
-      </h3>
-      <hr className="border-gray-300 my-5" />
-      {/* Payment & Addresses */}
-      <div className="mb-5">
-        <div className="my-5">
-          <h4 className="h4 mb-5">Where to ship your order?</h4>
-          <div className="relative flex justify-between items-start mt-2">
-            <p>
-              {selectedAddress
-                ? `${selectedAddress.street}, ${selectedAddress.city}, ${selectedAddress.state}, ${selectedAddress.country}`
-                : "No address found"}
-            </p>
-            <button
-              onClick={() => setShowaddress(!showAddess)}
-              className="text-secondary medium-14 hover:underline cursor-pointer"
-            >
-              Change
-            </button>
-            {showAddess && (
-              <div className="absolute top-10 py-1 bg-white ring-1 ring-slate-900/10 text-sm w-full">
-                {addresses.map((address, index) => (
-                  <p
-                    key={index}
-                    onClick={() => {
-                      setSelectedAddress(address);
-                      setShowaddress(false);
-                    }}
-                    className="p-2 cursor-pointer hover:bg-gray-100 medium-14"
-                  >
-                    {address.street}, {address.city}, {address.state},
-                    {address.country}
+      </div>
+
+      <hr className="my-5 border-gray-300" />
+
+      {/* Order items chỉ hiện ở Step 2 */}
+      {currentStep === 2 && (
+        <>
+          <div className="max-h-72 space-y-4 overflow-y-auto pr-1">
+            {orderItems.map((item) => (
+              <div
+                key={`${item.product._id}-${item.size}`}
+                className="flex gap-3"
+              >
+                <img
+                  src={item.product.images[0]}
+                  alt={item.product.title}
+                  className="h-20 w-16 rounded-md bg-primary object-cover"
+                />
+
+                <div className="min-w-0 flex-1">
+                  <p className="line-clamp-2 font-medium">
+                    {item.product.title}
                   </p>
-                ))}
-                <p
-                  onClick={() => {
-                    navigate("/address-form");
-                    scrollTo(0, 0);
-                  }}
-                  className="p-2 text-center cursor-pointer hover:bg-tertiary hover:text-white"
-                >
-                  Add Address
+
+                  <p className="mt-1 text-sm text-gray-500">
+                    Size: {item.size}
+                  </p>
+
+                  <p className="text-sm text-gray-500">
+                    Quantity: {item.quantity}
+                  </p>
+                </div>
+
+                <p className="whitespace-nowrap text-sm font-semibold">
+                  {formatPrice(item.product.price[item.size] * item.quantity)}
                 </p>
               </div>
-            )}
+            ))}
           </div>
+
+          <hr className="my-5 border-gray-200" />
+        </>
+      )}
+
+      {/* Total xuất hiện ở cả Step 1 và Step 2 */}
+      <div className="space-y-3">
+        <div className="flex justify-between gap-4">
+          <p className="text-gray-500">Subtotal</p>
+
+          <p className="font-semibold">{formatPrice(subtotal)}</p>
         </div>
-        <hr className="border-gray-300 mt-5" />
-        <div className="my-6">
-          <h4 className="h4 mb-5">Payment Method</h4>
-          <div className="flex gap-3">
-            <div
-              onClick={() => setMethod("COD")}
-              className={`${method === "COD" ? "btn-secondary" : "btn-outline"} !py-1 text-xs cursor-pointer`}
+
+        <div className="flex justify-between gap-4">
+          <p className="text-gray-500">Shipping</p>
+
+          <p className="font-semibold">{formatPrice(shipping)}</p>
+        </div>
+
+        <hr className="border-gray-200" />
+
+        <div className="flex justify-between gap-4 text-lg">
+          <p className="font-semibold">Total</p>
+
+          <p className="font-bold text-secondary">{formatPrice(total)}</p>
+        </div>
+      </div>
+
+      {/* Payment method chỉ hiện ở Step 2 */}
+      {currentStep === 2 && (
+        <>
+          <hr className="my-5 border-gray-200" />
+
+          <h4 className="font-semibold">Payment Method</h4>
+
+          <div className="mt-4 grid gap-3">
+            <label
+              className={`cursor-pointer rounded-lg border p-4 ${
+                method === "COD"
+                  ? "border-secondary bg-secondary/5"
+                  : "border-gray-200"
+              }`}
             >
-              Cash On Delivery
-            </div>
-            <div
-              onClick={() => setMethod("QR")}
-              className={`${method === "QR" ? "btn-secondary" : "btn-outline"} !py-1 text-xs cursor-pointer`}
+              <input
+                type="radio"
+                name="paymentMethod"
+                value="COD"
+                checked={method === "COD"}
+                onChange={() => setMethod("COD")}
+                className="mr-2"
+              />
+              Cash on delivery
+            </label>
+
+            <label
+              className={`cursor-pointer rounded-lg border p-4 ${
+                method === "QR"
+                  ? "border-secondary bg-secondary/5"
+                  : "border-gray-200"
+              }`}
             >
+              <input
+                type="radio"
+                name="paymentMethod"
+                value="QR"
+                checked={method === "QR"}
+                onChange={() => setMethod("QR")}
+                className="mr-2"
+              />
               QR Code
-            </div>
+            </label>
           </div>
+        </>
+      )}
+
+      {/* Step 1 button */}
+      {currentStep === 1 && (
+        <button
+          type="button"
+          onClick={onCheckout}
+          disabled={getCartCount() === 0}
+          className="btn-dark mt-8 w-full !rounded-md disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Proceed to Checkout
+        </button>
+      )}
+
+      {/* Step 2 buttons */}
+      {currentStep === 2 && (
+        <div className="mt-8 grid gap-3">
+          <button
+            type="submit"
+            form="checkout-address-form"
+            disabled={isSubmitting}
+            className="btn-dark w-full !rounded-md disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSubmitting
+              ? "Processing..."
+              : method === "QR"
+                ? "Create Payment QR"
+                : "Place Order"}
+          </button>
+
+          <button
+            type="button"
+            onClick={onBack}
+            disabled={isSubmitting}
+            className="btn-outline w-full !rounded-md disabled:opacity-50"
+          >
+            Back to Cart
+          </button>
         </div>
-        <hr className="border-gray-300 mt-5" />
-      </div>
-      <div className="mt-4 space-y-2">
-        <div className="flex justify-between">
-          <h5 className="h5">Price</h5>
-          <p className="font-bold">
-            {getCartAmount()}.000
-            {currency}
-          </p>
-        </div>
-        <div className="flex justify-between">
-          <h5 className="h5">Shipping Fee</h5>
-          <p className="font-bold">
-            {getCartAmount() === 0 ? 0 : `${delivery_charges}`}.000
-            {currency}
-          </p>
-        </div>
-        <div className="flex justify-between text-lg font-medium mt-3">
-          <h4 className="h4">Total Amount:</h4>
-          <p className="bold-18">
-            {getCartAmount() === 0 ? 0 : getCartAmount() + delivery_charges}.000
-            {currency}
-          </p>
-        </div>
-      </div>
-      <button className="btn-dark w-full mt-8 !rounded-md">
-        Proceed to Order
-      </button>
+      )}
     </div>
   );
 };

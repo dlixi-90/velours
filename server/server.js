@@ -9,6 +9,7 @@ import connectCloudinary from "./config/cloudinary.js";
 import productRouter from "./routes/productRoute.js";
 import addressRouter from "./routes/addressRoute.js";
 import cartRouter from "./routes/cartRoute.js";
+import orderRouter from "./routes/orderRoute.js";
 
 await connectDB(); // Establish connection to the database
 await connectCloudinary(); //Setup cloudinary for image storage
@@ -28,6 +29,7 @@ app.use("/api/users", userRouter); // Routes for User functionality
 app.use("/api/products", productRouter); // Routes for handling products
 app.use("/api/addresses", addressRouter); // Routes for handling addresses
 app.use("/api/cart", cartRouter); // Routes for handling cart
+app.use("/api/orders", orderRouter); // Routes for handling order
 
 // Route Endpoint to check API Status
 app.get("/", (req, res) => {

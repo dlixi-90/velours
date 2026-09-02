@@ -1,124 +1,277 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import toast from "react-hot-toast";
 import Title from "../components/Title";
 import CartTotal from "../components/CartTotal";
+import CartSteps from "../components/CartSteps";
+import QrPaymentStatus from "../components/QrPaymentStatus";
+import CheckoutAddressForm from "../components/checkout/CheckoutAddressForm";
 import { useAppContext } from "../context/AppContext";
 import { assets } from "../assets/data";
 
 const Cart = () => {
-  const { navigate, products, currency, cartItems, updateQuantity } =
+  const { navigate, user, products, currency, cartItems, updateQuantity } =
     useAppContext();
+
   const [cartData, setCartData] = useState([]);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [highestStep, setHighestStep] = useState(1);
+  const [createdOrder, setCreatedOrder] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (products.length > 0) {
-      const tempData = [];
-      for (const itemId in cartItems) {
-        for (const size in cartItems[itemId]) {
-          if (cartItems[itemId][size] > 0) {
-            tempData.push({
-              _id: itemId,
-              size: size,
-            });
-          }
+    if (products.length === 0) return;
+
+    const result = [];
+
+    for (const productId in cartItems) {
+      for (const size in cartItems[productId]) {
+        if (cartItems[productId][size] > 0) {
+          result.push({
+            _id: productId,
+            size,
+          });
         }
       }
-      setCartData(tempData);
     }
+
+    setCartData(result);
   }, [products, cartItems]);
 
-  const increment = (id, size) => {
-    const currentQuantity = cartItems[id][size];
-    updateQuantity(id, size, currentQuantity + 1);
+  const increment = (productId, size) => {
+    const quantity = cartItems[productId]?.[size] || 0;
+
+    updateQuantity(productId, size, quantity + 1);
   };
 
-  const decrement = (id, size) => {
-    const currentQuantity = cartItems[id][size];
-    if (currentQuantity > 1) {
-      updateQuantity(id, size, currentQuantity - 1);
+  const decrement = (productId, size) => {
+    const quantity = cartItems[productId]?.[size] || 0;
+
+    if (quantity > 1) {
+      updateQuantity(productId, size, quantity - 1);
     }
+  };
+
+  const handleCheckout = () => {
+    if (cartData.length === 0) {
+      return toast.error("Your cart is empty");
+    }
+
+    if (!user) {
+      return toast.error("Please login before checkout");
+    }
+
+    setCurrentStep(2);
+    setHighestStep(2);
+    window.scrollTo(0, 0);
+  };
+
+  const handleOrderCreated = (order) => {
+    setCreatedOrder(order);
+    setCurrentStep(3);
+    setHighestStep(3);
+    window.scrollTo(0, 0);
+  };
+
+  const handleStepChange = (step) => {
+    if (createdOrder) return;
+    if (step > highestStep) return;
+
+    setCurrentStep(step);
+    window.scrollTo(0, 0);
   };
 
   return products && cartItems ? (
-    <div className="max-padd-container py-16 pt-28 bg-primary">
-      <div className="flex flex-col xl:flex-row gap-20 xl:gap-28">
-        {/* Left side */}
-        <div className="flex flex-[2] flex-col gap-3 text-[95%]">
-          <Title title1={"Cart"} title2={"Overview"} title1Styles={"pb-5"} />
-          <div className="grid grid-cols-[6fr_2fr_1fr] font-medium bg-white p-2 rounded-xl">
-            <h5 className="h5 text-left">Product Details</h5>
-            <h5 className="h5 text-center">Subtotal</h5>
-            <h5 className="h5 text-center">Action</h5>
-          </div>
-          {cartData.map((item, i) => {
-            const product = products.find(
-              (product) => product._id === item._id,
-            );
-            const quantity = cartItems[item._id][item.size];
-            return (
-              <div
-                key={i}
-                className="grid grid-cols-[6fr_2fr_1fr] items-center bg-white p-2 rounded-xl"
-              >
-                <div className="flex items-center md:gap-6 gap-3">
-                  <div className="flex bg-primary rounded-xl">
-                    <img src={product.images[0]} alt="" className="w-20" />
-                  </div>
-                  <div>
-                    <h5 className="hidden sm:block h5 line-clamp-1">
-                      {product.title}
-                    </h5>
-                    <div className="bold-14 flexStart gap-2 mb-1">
-                      Size: <p>{item.size}</p>
-                    </div>
-                    <div className="flexBetween">
-                      <div className="flex items-center ring-1 ring-slate-900/15 rounded-full overflow-hidden bg-primary">
-                        <button
-                          onClick={() => decrement(item._id, item.size)}
-                          className="p-1.5 bg-secondary text-white rounded-full shadow-md cursor-pointer"
-                        >
+    <div className="max-padd-container bg-primary py-16 pt-28">
+      <CartSteps
+        currentStep={currentStep}
+        highestStep={highestStep}
+        onStepChange={handleStepChange}
+        locked={Boolean(createdOrder)}
+      />
+
+      {/* STEP 1 */}
+      {currentStep === 1 && (
+        <div className="flex flex-col gap-10 xl:flex-row xl:items-start xl:gap-12">
+          {/* Cart items bên trái */}
+          <section className="flex min-w-0 flex-[2] flex-col gap-3 text-[95%]">
+            <Title title1="Cart" title2="Overview" title1Styles="pb-5" />
+
+            {cartData.length > 0 ? (
+              <>
+                <div className="grid grid-cols-[minmax(0,6fr)_2fr_1fr] rounded-xl bg-white p-3 font-medium">
+                  <h5 className="h5 text-left">Product Details</h5>
+
+                  <h5 className="h5 text-center">Subtotal</h5>
+
+                  <h5 className="h5 text-center">Action</h5>
+                </div>
+
+                {cartData.map((item) => {
+                  const product = products.find(
+                    (productItem) => productItem._id === item._id,
+                  );
+
+                  if (!product) return null;
+
+                  const quantity = cartItems[item._id][item.size];
+
+                  return (
+                    <div
+                      key={`${item._id}-${item.size}`}
+                      className="grid grid-cols-[minmax(0,6fr)_2fr_1fr] items-center rounded-xl bg-white p-3"
+                    >
+                      <div className="flex min-w-0 items-center gap-3 md:gap-6">
+                        <div className="flex rounded-xl bg-primary">
                           <img
-                            src={assets.minus}
-                            alt=""
-                            width={11}
-                            className="invert"
+                            src={product.images[0]}
+                            alt={product.title}
+                            className="h-20 w-20 rounded-xl object-cover"
                           />
-                        </button>
-                        <p className="px-2">{quantity}</p>
-                        <button
-                          onClick={() => increment(item._id, item.size)}
-                          className="p-1.5 bg-secondary text-white rounded-full shadow-md cursor-pointer"
-                        >
-                          <img
-                            src={assets.plus}
-                            alt=""
-                            width={11}
-                            className="invert"
-                          />
-                        </button>
+                        </div>
+
+                        <div className="min-w-0">
+                          <h5 className="h5 line-clamp-1">{product.title}</h5>
+
+                          <div className="mb-2 flex gap-2 bold-14">
+                            <span>Size:</span>
+                            <span>{item.size}</span>
+                          </div>
+
+                          <div className="inline-flex items-center overflow-hidden rounded-full bg-primary ring-1 ring-slate-900/15">
+                            <button
+                              type="button"
+                              onClick={() => decrement(item._id, item.size)}
+                              className="cursor-pointer rounded-full bg-secondary p-1.5 text-white shadow-md"
+                            >
+                              <img
+                                src={assets.minus}
+                                alt="Decrease"
+                                width={11}
+                                className="invert"
+                              />
+                            </button>
+
+                            <p className="px-3">{quantity}</p>
+
+                            <button
+                              type="button"
+                              onClick={() => increment(item._id, item.size)}
+                              className="cursor-pointer rounded-full bg-secondary p-1.5 text-white shadow-md"
+                            >
+                              <img
+                                src={assets.plus}
+                                alt="Increase"
+                                width={11}
+                                className="invert"
+                              />
+                            </button>
+                          </div>
+                        </div>
                       </div>
+
+                      <div className="text-center bold-16">
+                        {product.price[item.size] * quantity}
+                        .000 {currency}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => updateQuantity(item._id, item.size, 0)}
+                        className="mx-auto cursor-pointer"
+                      >
+                        <img
+                          src={assets.cartRemove}
+                          alt="Remove product"
+                          width={22}
+                        />
+                      </button>
                     </div>
-                  </div>
-                </div>
-                <div className="text-center bold-16">
-                  {product.price[item.size] * quantity}.000{currency}
-                </div>
+                  );
+                })}
+              </>
+            ) : (
+              <div className="rounded-xl bg-white px-6 py-16 text-center">
+                <h2 className="text-xl font-semibold">Your cart is empty</h2>
+
+                <p className="mt-2 text-gray-500">
+                  Add some products before checking out.
+                </p>
+
                 <button
-                  onClick={() => updateQuantity(item._id, item.size, 0)}
-                  className="cursor-pointer mx-auto"
+                  type="button"
+                  onClick={() => navigate("/collection")}
+                  className="btn-dark mt-6 !rounded-md"
                 >
-                  <img src={assets.cartRemove} alt="" width={22} />
+                  Continue Shopping
                 </button>
               </div>
-            );
-          })}
+            )}
+          </section>
+
+          {/* CartTotal luôn bên phải */}
+          <aside className="w-full xl:w-[379px] xl:flex-none">
+            <div className="w-full rounded-xl bg-white p-5 py-10 xl:sticky xl:top-28">
+              <CartTotal currentStep={1} onCheckout={handleCheckout} />
+            </div>
+          </aside>
         </div>
-        {/* Right side */}
-        <div className="flex flex-1 flex-col">
-          <div className="max-w-[379px] w-full bg-white p-5 py-10 max-md:mt-16 rounded-xl">
-            <CartTotal />
+      )}
+
+      {/* STEP 2 */}
+      {currentStep === 2 && (
+        <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_379px] xl:items-start">
+          {/* Address Form bên trái */}
+          <CheckoutAddressForm
+            onOrderCreated={handleOrderCreated}
+            isSubmitting={isSubmitting}
+            setIsSubmitting={setIsSubmitting}
+          />
+
+          {/* CartTotal vẫn bên phải */}
+          <aside className="w-full xl:w-[379px]">
+            <div className="w-full rounded-xl bg-white p-5 py-8 xl:sticky xl:top-28">
+              <CartTotal
+                currentStep={2}
+                isSubmitting={isSubmitting}
+                onBack={() => {
+                  setCurrentStep(1);
+                  window.scrollTo(0, 0);
+                }}
+              />
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* STEP 3 QR */}
+      {currentStep === 3 && createdOrder?.paymentMethod === "QR" && (
+        <QrPaymentStatus initialOrder={createdOrder} />
+      )}
+
+      {/* STEP 3 COD */}
+      {currentStep === 3 && createdOrder?.paymentMethod === "COD" && (
+        <div className="mx-auto max-w-xl rounded-2xl bg-white px-6 py-16 text-center shadow-sm">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-3xl text-green-600">
+            {"\u2713"}
           </div>
+
+          <h2 className="mt-5 text-2xl font-semibold">
+            Order placed successfully
+          </h2>
+
+          <p className="mt-3 text-gray-500">
+            Your order has been created. You will pay when it is delivered.
+          </p>
+
+          <button
+            type="button"
+            onClick={() => navigate("/my-orders")}
+            className="btn-dark mt-8 !rounded-md"
+          >
+            View My Orders
+          </button>
         </div>
-      </div>
+      )}
     </div>
   ) : null;
 };

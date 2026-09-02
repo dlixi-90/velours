@@ -135,7 +135,7 @@ const AddProduct = () => {
           4: null,
         });
       } else {
-        toast.error(error.message);
+        toast.error(data.message);
       }
     } catch (error) {
       toast.error(error.message);
@@ -238,7 +238,7 @@ const AddProduct = () => {
             {sizePrices.map((sp, index) => (
               <div key={index}>
                 <span>
-                  {sp.size}: ${sp.price}
+                  {sp.size}: {sp.price}
                 </span>
                 <button
                   type="button"
