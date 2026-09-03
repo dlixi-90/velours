@@ -31,9 +31,19 @@ const orderSchema = new mongoose.Schema(
     paidAt: {
       type: Date,
     },
+    paymentExpiresAt: {
+      type: Date,
+    },
   },
   { timestamps: true },
 );
+
+orderSchema.index({
+  paymentMethod: 1,
+  isPaid: 1,
+  status: 1,
+  paymentExpiresAt: 1,
+});
 
 const Order = mongoose.model("Order", orderSchema);
 

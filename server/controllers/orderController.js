@@ -4,26 +4,345 @@ import User from "../models/User.js";
 import transporter from "../config/nodemailer.js";
 import crypto from "crypto";
 import Address from "../models/Address.js";
+import mongoose, { isObjectIdOrHexString } from "mongoose";
+import { getSizeQuantity, isSizeAvailable } from "../utils/productStock.js";
 
 // Global variables for payment
 const currency = "VND";
 const delivery_charges = 30;
+const parsedQrReservationMinutes = Number(
+  process.env.QR_RESERVATION_MINUTES || 15,
+);
+const qrReservationMinutes =
+  Number.isFinite(parsedQrReservationMinutes) && parsedQrReservationMinutes > 0
+    ? parsedQrReservationMinutes
+    : 15;
 
-const validateUserAddress = async (addressId, userId) => {
-  if (!addressId) {
-    throw new Error("Please provide a delivery address");
+class OrderRequestError extends Error {
+  constructor(message, statusCode = 400) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+const sendOrderError = (res, error) => {
+  const statusCode = error.statusCode || 500;
+
+  if (statusCode === 500) {
+    console.log(error);
   }
 
-  const address = await Address.findOne({
+  return res.status(statusCode).json({
+    success: false,
+    message: error.message,
+  });
+};
+
+const runInTransaction = async (operation) => {
+  const session = await mongoose.startSession();
+  let result;
+
+  try {
+    await session.withTransaction(async () => {
+      result = await operation(session);
+    });
+
+    return result;
+  } finally {
+    await session.endSession();
+  }
+};
+
+const validateUserAddress = async (addressId, userId, session) => {
+  if (!addressId) {
+    throw new OrderRequestError("Please provide a delivery address");
+  }
+
+  const addressQuery = Address.findOne({
     _id: addressId,
     userId,
   });
+  const address = session
+    ? await addressQuery.session(session)
+    : await addressQuery;
 
   if (!address) {
-    throw new Error("Delivery address not found");
+    throw new OrderRequestError("Delivery address not found", 404);
   }
 
   return address;
+};
+
+const normalizeOrderItems = (items) => {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new OrderRequestError("Please add product first");
+  }
+
+  const groupedItems = new Map();
+
+  for (const item of items) {
+    const productId = String(item?.product || "");
+    const size = typeof item?.size === "string" ? item.size.trim() : "";
+    const quantity = Number(item?.quantity);
+
+    if (!isObjectIdOrHexString(productId)) {
+      throw new OrderRequestError("Invalid product ID");
+    }
+
+    if (!size) {
+      throw new OrderRequestError("Invalid product size");
+    }
+
+    if (!Number.isSafeInteger(quantity) || quantity < 1) {
+      throw new OrderRequestError("Quantity must be a positive integer");
+    }
+
+    const key = `${productId}:${size}`;
+    const existingItem = groupedItems.get(key);
+
+    if (existingItem) {
+      existingItem.quantity += quantity;
+
+      if (!Number.isSafeInteger(existingItem.quantity)) {
+        throw new OrderRequestError("Invalid product quantity");
+      }
+    } else {
+      groupedItems.set(key, {
+        product: productId,
+        size,
+        quantity,
+      });
+    }
+  }
+
+  return [...groupedItems.values()];
+};
+
+const validateOrderItems = async (items, session) => {
+  const normalizedItems = normalizeOrderItems(items);
+  const productIds = [
+    ...new Set(normalizedItems.map((item) => item.product)),
+  ];
+
+  const productsQuery = Product.find({
+    _id: { $in: productIds },
+    isDeleted: { $ne: true },
+  });
+  const products = session
+    ? await productsQuery.session(session)
+    : await productsQuery;
+
+  const productsById = new Map(
+    products.map((product) => [String(product._id), product]),
+  );
+
+  let subtotal = 0;
+
+  for (const item of normalizedItems) {
+    const product = productsById.get(item.product);
+
+    if (!product) {
+      throw new OrderRequestError("Product not found", 404);
+    }
+
+    if (!product.sizes.includes(item.size)) {
+      throw new OrderRequestError(
+        `Invalid size ${item.size} for ${product.title}`,
+      );
+    }
+
+    if (!isSizeAvailable(product, item.size)) {
+      throw new OrderRequestError(
+        `${product.title} - ${item.size} is out of stock`,
+      );
+    }
+
+    const stockQuantity = getSizeQuantity(product, item.size);
+
+    if (item.quantity > stockQuantity) {
+      throw new OrderRequestError(
+        `Only ${stockQuantity} items are available for ${product.title} - ${item.size}`,
+      );
+    }
+
+    const unitPrice = Number(product.price?.[item.size]);
+
+    if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+      throw new OrderRequestError(
+        `Invalid price for ${product.title} - ${item.size}`,
+      );
+    }
+
+    subtotal += unitPrice * item.quantity;
+  }
+
+  return {
+    items: normalizedItems,
+    subtotal,
+    productsById,
+  };
+};
+
+const syncProductStockStatus = (product, restoredSizes = new Set()) => {
+  const inStockBySize = {};
+
+  for (const size of product.sizes || []) {
+    const quantity = getSizeQuantity(product, size);
+    const savedStatus = product.inStockBySize?.[size];
+
+    inStockBySize[size] =
+      !product.isDeleted &&
+      quantity > 0 &&
+      (restoredSizes.has(size) ||
+        (typeof savedStatus === "boolean" ? savedStatus : true));
+  }
+
+  product.inStockBySize = inStockBySize;
+  product.inStock =
+    !product.isDeleted &&
+    (product.sizes || []).some((size) => getSizeQuantity(product, size) > 0);
+  product.markModified("stockBySize");
+  product.markModified("inStockBySize");
+};
+
+const reserveOrderStock = async (validatedOrder, session) => {
+  const changedProducts = new Map();
+
+  for (const item of validatedOrder.items) {
+    const product = validatedOrder.productsById.get(item.product);
+    const currentQuantity = getSizeQuantity(product, item.size);
+
+    product.stockBySize = {
+      ...(product.stockBySize || {}),
+      [item.size]: currentQuantity - item.quantity,
+    };
+    changedProducts.set(item.product, product);
+  }
+
+  for (const product of changedProducts.values()) {
+    syncProductStockStatus(product);
+    await product.save({ session });
+  }
+};
+
+const restoreOrderStock = async (order, session) => {
+  const productIds = [...new Set(order.items.map((item) => item.product))];
+  const products = await Product.find({
+    _id: { $in: productIds },
+  }).session(session);
+  const productsById = new Map(
+    products.map((product) => [String(product._id), product]),
+  );
+  const restoredSizesByProduct = new Map();
+
+  for (const item of order.items) {
+    const productId = String(item.product);
+    const product = productsById.get(productId);
+
+    if (!product || !product.sizes.includes(item.size)) continue;
+
+    product.stockBySize = {
+      ...(product.stockBySize || {}),
+      [item.size]: getSizeQuantity(product, item.size) + item.quantity,
+    };
+
+    const restoredSizes = restoredSizesByProduct.get(productId) || new Set();
+    restoredSizes.add(item.size);
+    restoredSizesByProduct.set(productId, restoredSizes);
+  }
+
+  for (const [productId, product] of productsById) {
+    const restoredSizes = restoredSizesByProduct.get(productId);
+
+    if (!restoredSizes) continue;
+
+    syncProductStockStatus(product, restoredSizes);
+    await product.save({ session });
+  }
+};
+
+const removeOrderItemsFromCart = async (userId, items, session) => {
+  const user = await User.findById(userId).session(session);
+
+  if (!user) {
+    throw new OrderRequestError("User not found", 404);
+  }
+
+  const cartData = { ...(user.cartData || {}) };
+
+  for (const item of items) {
+    const productId = String(item.product);
+    const productCart = { ...(cartData[productId] || {}) };
+    const currentQuantity = Number(productCart[item.size] ?? 0);
+    const remainingQuantity = currentQuantity - item.quantity;
+
+    if (remainingQuantity > 0) {
+      productCart[item.size] = remainingQuantity;
+    } else {
+      delete productCart[item.size];
+    }
+
+    if (Object.keys(productCart).length > 0) {
+      cartData[productId] = productCart;
+    } else {
+      delete cartData[productId];
+    }
+  }
+
+  user.cartData = cartData;
+  user.markModified("cartData");
+  await user.save({ session });
+};
+
+const expireQrOrder = async (orderId) => {
+  const expirationFilter = {
+    _id: orderId,
+    paymentMethod: "QR",
+    isPaid: false,
+    status: "Awaiting Payment",
+    paymentExpiresAt: { $lte: new Date() },
+  };
+  const isExpired = await Order.exists(expirationFilter);
+
+  if (!isExpired) return false;
+
+  return runInTransaction(async (session) => {
+    const order = await Order.findOne(expirationFilter).session(session);
+
+    if (!order) return false;
+
+    await restoreOrderStock(order, session);
+    order.status = "Payment Expired";
+    await order.save({ session });
+
+    return true;
+  });
+};
+
+const releaseExpiredQrReservations = async () => {
+  const expirationFilter = {
+    paymentMethod: "QR",
+    isPaid: false,
+    status: "Awaiting Payment",
+    paymentExpiresAt: { $lte: new Date() },
+  };
+  const hasExpiredOrder = await Order.exists(expirationFilter);
+
+  if (!hasExpiredOrder) return 0;
+
+  return runInTransaction(async (session) => {
+    const expiredOrders = await Order.find(expirationFilter)
+      .limit(50)
+      .session(session);
+
+    for (const order of expiredOrders) {
+      await restoreOrderStock(order, session);
+      order.status = "Payment Expired";
+      await order.save({ session });
+    }
+
+    return expiredOrders.length;
+  });
 };
 
 // Place Order using COD [POST '/cod']
@@ -31,43 +350,42 @@ export const placeOrderCOD = async (req, res) => {
   try {
     const { items, address } = req.body;
     const { userId } = req.auth();
-    const selectedAddress = await validateUserAddress(address, userId);
+    await releaseExpiredQrReservations();
 
-    if (!items || items.length === 0) {
-      return res.json({ success: false, message: "Please add product first" });
-    }
+    const { orderId } = await runInTransaction(async (session) => {
+      const selectedAddress = await validateUserAddress(
+        address,
+        userId,
+        session,
+      );
+      const validatedOrder = await validateOrderItems(items, session);
+      const totalAmount = validatedOrder.subtotal + delivery_charges;
 
-    // calculate amount using items
-    let subtotal = 0;
-    for (const item of items) {
-      const product = await Product.findById(item.product);
-      if (!product) {
-        return res.json({ success: false, message: "Product not found" });
-      }
+      await reserveOrderStock(validatedOrder, session);
 
-      const unitPrice = product.price[item.size];
-      if (!unitPrice) {
-        return res.json({ success: false, message: "Invalid size selected" });
-      }
-      subtotal += unitPrice * item.quantity;
-    }
+      const [order] = await Order.create(
+        [
+          {
+            userId,
+            items: validatedOrder.items,
+            amount: totalAmount,
+            address: selectedAddress._id,
+            paymentMethod: "COD",
+          },
+        ],
+        { session },
+      );
 
-    // calculate total amount by adding delivery charges
-    const totalAmount = subtotal + delivery_charges;
+      await removeOrderItemsFromCart(
+        userId,
+        validatedOrder.items,
+        session,
+      );
 
-    const order = await Order.create({
-      userId,
-      items,
-      amount: totalAmount,
-      address: selectedAddress._id,
-      paymentMethod: "COD",
+      return { orderId: order._id };
     });
 
-    // Clear user cart after placing order
-    await User.findByIdAndUpdate(userId, { cartData: {} });
-
-    // Send confirmation email for COD
-    const populatedOrder = await Order.findById(order._id).populate(
+    const populatedOrder = await Order.findById(orderId).populate(
       "items.product address",
     );
     const user = await User.findById(userId);
@@ -96,7 +414,11 @@ export const placeOrderCOD = async (req, res) => {
       `,
     };
 
-    await transporter.sendMail(mailOptions);
+    try {
+      await transporter.sendMail(mailOptions);
+    } catch (emailError) {
+      console.log("Could not send COD confirmation email:", emailError.message);
+    }
 
     return res.status(201).json({
       success: true,
@@ -104,8 +426,7 @@ export const placeOrderCOD = async (req, res) => {
       order: populatedOrder,
     });
   } catch (error) {
-    console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return sendOrderError(res, error);
   }
 };
 
@@ -140,83 +461,78 @@ export const placeOrderQr = async (req, res) => {
   try {
     const { items, address } = req.body;
     const { userId } = req.auth();
+    await releaseExpiredQrReservations();
 
-    if (!items || items.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Please add product first",
-      });
-    }
-
-    let subtotal = 0;
-
-    for (const item of items) {
-      const product = await Product.findById(item.product);
-
-      if (!product) {
-        return res.status(404).json({
-          success: false,
-          message: "Product not found",
-        });
-      }
-
-      const unitPrice = Number(product.price[item.size]);
-      const quantity = Number(item.quantity);
-
-      if (!unitPrice || quantity < 1) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid product size or quantity",
-        });
-      }
-
-      subtotal += unitPrice * quantity;
-    }
-
-    const totalAmount = subtotal + delivery_charges;
     const paymentCode = createPaymentCode();
+    const paymentExpiresAt = new Date(
+      Date.now() + qrReservationMinutes * 60 * 1000,
+    );
 
-    // Giá trong project đang biểu diễn 30 = 30.000 VNĐ.
-    const qrAmount = totalAmount * 1000;
+    const order = await runInTransaction(async (session) => {
+      const selectedAddress = await validateUserAddress(
+        address,
+        userId,
+        session,
+      );
+      const validatedOrder = await validateOrderItems(items, session);
+      const totalAmount = validatedOrder.subtotal + delivery_charges;
 
-    const order = await Order.create({
-      userId,
-      items,
-      amount: totalAmount,
-      address,
-      paymentMethod: "QR",
-      paymentCode,
-      qrAmount,
-      status: "Awaiting Payment",
-      isPaid: false,
+      // Giá trong project đang biểu diễn 30 = 30.000 VNĐ.
+      const qrAmount = totalAmount * 1000;
+
+      await reserveOrderStock(validatedOrder, session);
+
+      const [createdOrder] = await Order.create(
+        [
+          {
+            userId,
+            items: validatedOrder.items,
+            amount: totalAmount,
+            address: selectedAddress._id,
+            paymentMethod: "QR",
+            paymentCode,
+            qrAmount,
+            paymentExpiresAt,
+            status: "Awaiting Payment",
+            isPaid: false,
+          },
+        ],
+        { session },
+      );
+
+      return createdOrder.toObject();
     });
 
     const qrUrl = createQrUrl({
       paymentCode,
-      qrAmount,
+      qrAmount: order.qrAmount,
     });
 
     return res.status(201).json({
       success: true,
       message: "QR order created",
       order: {
-        ...order.toObject(),
+        ...order,
         qrUrl,
       },
     });
   } catch (error) {
-    console.log(error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    return sendOrderError(res, error);
   }
 };
 
 export const getOrderStatus = async (req, res) => {
   try {
     const { userId } = req.auth();
+
+    if (!isObjectIdOrHexString(req.params.orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order ID",
+      });
+    }
+
+    await expireQrOrder(req.params.orderId);
     const order = await Order.findById(req.params.orderId);
 
     if (!order) {
@@ -280,27 +596,58 @@ export const sepayWebhook = async (req, res) => {
       return res.json({ success: true });
     }
 
-    const order = await Order.findOne({ paymentCode });
+    const paymentResult = await runInTransaction(async (session) => {
+      const order = await Order.findOne({ paymentCode }).session(session);
 
-    if (!order || order.isPaid) {
-      return res.json({ success: true });
-    }
+      if (!order || order.isPaid) {
+        return "ignored";
+      }
 
-    if (Number(transferAmount) < Number(order.qrAmount)) {
-      return res.json({ success: true });
-    }
+      if (Number(transferAmount) < Number(order.qrAmount)) {
+        return "insufficient";
+      }
 
-    order.isPaid = true;
-    order.status = "Order Placed";
-    order.transactionId = String(id);
-    order.paidAt = new Date();
+      order.isPaid = true;
+      order.transactionId = String(id);
+      order.paidAt = new Date();
 
-    await order.save();
+      if (order.status === "Payment Expired") {
+        try {
+          const validatedOrder = await validateOrderItems(order.items, session);
 
-    // Chỉ xoá giỏ sau khi đã nhận tiền
-    await User.findByIdAndUpdate(order.userId, {
-      cartData: {},
+          await reserveOrderStock(validatedOrder, session);
+          order.status = "Order Placed";
+          await order.save({ session });
+          await removeOrderItemsFromCart(order.userId, order.items, session);
+
+          return "paid";
+        } catch (error) {
+          if (!(error instanceof OrderRequestError)) throw error;
+
+          // Stock was sold after this reservation expired. Record the received
+          // payment so the owner can fulfil it manually or issue a refund.
+          order.status = "Payment Review";
+          await order.save({ session });
+
+          return "review";
+        }
+      }
+
+      if (order.status !== "Awaiting Payment") {
+        return "ignored";
+      }
+
+      order.status = "Order Placed";
+
+      await order.save({ session });
+      await removeOrderItemsFromCart(order.userId, order.items, session);
+
+      return "paid";
     });
+
+    if (paymentResult === "review") {
+      console.log(`Late QR payment requires review: ${paymentCode}`);
+    }
 
     return res.json({ success: true });
   } catch (error) {

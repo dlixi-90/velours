@@ -2,6 +2,7 @@ import { v2 as cloudinary } from "cloudinary";
 import Product from "../models/Product.js";
 import { isValidObjectId } from "mongoose";
 import User from "../models/User.js";
+import { getSizeQuantity, hasAnyQuantity } from "../utils/productStock.js";
 
 // Controller Function for Adding Product [POST '/']
 export const createProduct = async (req, res) => {
@@ -111,9 +112,7 @@ export const toggleStock = async (req, res) => {
 
     // Không truyền size: cập nhật switch tổng
     if (!size) {
-      const hasStock = product.sizes.some(
-        (currentSize) => Number(product.stockBySize?.[currentSize] ?? 0) > 0,
-      );
+      const hasStock = hasAnyQuantity(product);
 
       if (inStock && !hasStock) {
         return res.status(400).json({
@@ -141,7 +140,7 @@ export const toggleStock = async (req, res) => {
       });
     }
 
-    const quantity = Number(product.stockBySize?.[size] ?? 0);
+    const quantity = getSizeQuantity(product, size);
 
     if (inStock && quantity <= 0) {
       return res.status(400).json({
