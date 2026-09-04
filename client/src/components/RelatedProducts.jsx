@@ -14,7 +14,8 @@ const RelatedProducts = ({ product, productId }) => {
       products
         .filter(
           (item) =>
-            item.category === product.category && item._id !== productId,
+            item.category === product.category &&
+            item._id !== productId,
         )
         .slice(0, 6),
     [product.category, productId, products],

@@ -7,6 +7,7 @@ const Item = ({ product, collectionLayout = false }) => {
   const { navigate, currency } = useAppContext();
   const [hovered, setHovered] = useState(false);
   const availableSizes = getAvailableSizes(product);
+  const isAvailable = availableSizes.length > 0;
   const size = availableSizes[0] ?? null;
   const colors = ["#f2f2f2", "#f6f9f6", "#f6f8fe"];
   const bgcolor =
@@ -58,6 +59,11 @@ const Item = ({ product, collectionLayout = false }) => {
         <p className="absolute right-2 top-2 rounded-full bg-white/50 px-5 ring-1 ring-slate-900/10">
           {product.type}
         </p>
+        {!isAvailable && (
+          <p className="absolute left-2 top-2 rounded-full bg-red-50 px-3 py-1 text-xs font-medium text-red-700 ring-1 ring-red-200">
+            Out of stock
+          </p>
+        )}
       </div>
 
       {/* Info */}

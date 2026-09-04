@@ -2,6 +2,7 @@ import { isValidObjectId } from "mongoose";
 import Product from "../../../models/Product.js";
 import {
   getAvailableProductOptions,
+  getProductOptions,
   getProductPriceRange,
 } from "./productToolUtils.js";
 
@@ -94,7 +95,9 @@ const getCommonAvailableSizes = (products) => {
 };
 
 const getLowestStartingPrice = (products) => {
-  const pricedProducts = products.filter((product) => product.priceRange);
+  const pricedProducts = products.filter(
+    (product) => product.isAvailable && product.priceRange,
+  );
 
   if (pricedProducts.length === 0) return null;
 
@@ -132,6 +135,7 @@ export const compareProducts = async (argumentsValue = {}) => {
     .filter(Boolean)
     .map((product) => {
       const availableOptions = getAvailableProductOptions(product);
+      const productOptions = getProductOptions(product);
 
       return {
         id: String(product._id),
@@ -145,7 +149,10 @@ export const compareProducts = async (argumentsValue = {}) => {
         popular: Boolean(product.popular),
         isAvailable: availableOptions.length > 0,
         availableOptions,
-        priceRange: getProductPriceRange(availableOptions),
+        productOptions,
+        priceRange: getProductPriceRange(
+          availableOptions.length > 0 ? availableOptions : productOptions,
+        ),
         image: product.images?.[0] || null,
         url: `/collection/${product._id}`,
       };

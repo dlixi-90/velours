@@ -473,14 +473,20 @@ const AIChatPanel = ({ isOpen, onClose }) => {
                                     {formatProductPrice(product.priceRange)}
                                   </p>
                                   <div className="mt-1 flex flex-wrap gap-1">
-                                    {product.availableOptions?.map((option) => (
-                                      <span
-                                        key={option.size}
-                                        className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700"
-                                      >
-                                        {option.size}
+                                    {product.isAvailable === false ? (
+                                      <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700">
+                                        Hết hàng
                                       </span>
-                                    ))}
+                                    ) : (
+                                      product.availableOptions?.map((option) => (
+                                        <span
+                                          key={option.size}
+                                          className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+                                        >
+                                          {option.size}
+                                        </span>
+                                      ))
+                                    )}
                                   </div>
                                 </div>
                               </Link>

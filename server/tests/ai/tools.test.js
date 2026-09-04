@@ -31,6 +31,7 @@ const createProduct = ({
   sizes,
   stockBySize,
   inStockBySize,
+  inStock = true,
 }) => ({
   _id: id,
   title,
@@ -43,7 +44,7 @@ const createProduct = ({
   category: "Face Care",
   type: "Serum",
   popular: false,
-  inStock: true,
+  inStock,
   isDeleted: false,
   createdAt: new Date("2026-01-01T00:00:00Z"),
 });
@@ -75,7 +76,7 @@ test("searchProducts lọc size còn hàng và đổi giá sang đơn vị đầ
       limit: 3,
     });
 
-    assert.equal(capturedFilter.inStock, true);
+    assert.equal("inStock" in capturedFilter, false);
     assert.equal(capturedFilter.isDeleted.$ne, true);
     assert.equal(capturedFilter.$or[0].title.test("Hydrating Serum"), true);
     assert.equal(result.count, 1);
@@ -91,6 +92,47 @@ test("searchProducts lọc size còn hàng và đổi giá sang đơn vị đầ
       searchProducts({ minPrice: 50000, maxPrice: 10000 }),
       /minPrice/,
     );
+  } finally {
+    Product.find = originalFind;
+  }
+});
+
+test("searchProducts có thể tra cứu sản phẩm hết hàng và báo đúng trạng thái", async () => {
+  const originalFind = Product.find;
+
+  Product.find = () =>
+    createQuery([
+      createProduct({
+        id: PRODUCT_A_ID,
+        title: "Sold Out Serum",
+        price: { "30ml": 20 },
+        sizes: ["30ml"],
+        stockBySize: { "30ml": 0 },
+        inStockBySize: { "30ml": false },
+        inStock: false,
+      }),
+    ]);
+
+  try {
+    const allProducts = await searchProducts({ query: "Sold Out" });
+
+    assert.equal(allProducts.count, 1);
+    assert.equal(allProducts.products[0].isAvailable, false);
+    assert.deepEqual(allProducts.products[0].availableOptions, []);
+    assert.equal(allProducts.products[0].productOptions[0].isAvailable, false);
+    assert.equal(allProducts.products[0].priceRange.min, 20000);
+
+    const availableProducts = await searchProducts({
+      query: "Sold Out",
+      availability: "available",
+    });
+    assert.equal(availableProducts.count, 0);
+
+    const outOfStockProducts = await searchProducts({
+      query: "Sold Out",
+      availability: "out_of_stock",
+    });
+    assert.equal(outOfStockProducts.count, 1);
   } finally {
     Product.find = originalFind;
   }
@@ -120,15 +162,31 @@ test("getProductDetails trả dữ liệu thật và xử lý productId không h
     assert.equal(found.product.id, PRODUCT_A_ID);
     assert.equal(found.product.priceRange.min, 20000);
 
+    databaseResult = createProduct({
+      id: PRODUCT_B_ID,
+      title: "Sold Out Serum",
+      price: { "30ml": 25 },
+      sizes: ["30ml"],
+      stockBySize: { "30ml": 0 },
+      inStockBySize: { "30ml": false },
+      inStock: false,
+    });
+    const soldOut = await getProductDetails({ productId: PRODUCT_B_ID });
+    assert.equal(soldOut.found, true);
+    assert.equal(soldOut.product.isAvailable, false);
+    assert.deepEqual(soldOut.product.availableOptions, []);
+    assert.equal(soldOut.product.productOptions[0].isAvailable, false);
+    assert.equal(soldOut.product.priceRange.min, 25000);
+
     databaseResult = null;
-    const missing = await getProductDetails({ productId: PRODUCT_B_ID });
+    const missing = await getProductDetails({ productId: PRODUCT_C_ID });
     assert.equal(missing.found, false);
 
     await assert.rejects(
       getProductDetails({ productId: "not-an-object-id" }),
       /productId/,
     );
-    assert.equal(findCalls, 2);
+    assert.equal(findCalls, 3);
   } finally {
     Product.findOne = originalFindOne;
   }

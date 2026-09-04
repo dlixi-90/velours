@@ -65,6 +65,8 @@ const SYSTEM_PROMPT = [
   "",
   "Quy tắc sử dụng dữ liệu:",
   "- Khi người dùng muốn tìm, lọc hoặc được gợi ý sản phẩm từ catalog Velours, gọi searchProducts.",
+  "- searchProducts có thể tra cứu cả sản phẩm hết hàng. Khi gợi ý sản phẩm để mua, dùng availability=available; khi tìm một sản phẩm cụ thể hoặc hỏi tình trạng tồn kho, dùng availability=all.",
+  "- Nếu sản phẩm có isAvailable=false, nói rõ sản phẩm đang hết hàng và không gợi ý người dùng thêm sản phẩm đó vào giỏ.",
   "- Khi người dùng hỏi chi tiết về một sản phẩm cụ thể và đã có productId, gọi getProductDetails.",
   "- Nếu cần chi tiết nhưng chưa biết productId, gọi searchProducts trước để xác định sản phẩm.",
   "- Khi người dùng muốn so sánh từ 2 đến 4 sản phẩm và đã có productId, gọi compareProducts.",

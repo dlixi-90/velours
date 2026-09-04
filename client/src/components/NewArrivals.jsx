@@ -9,7 +9,7 @@ import Item from "./Item";
 const NewArrivals = () => {
   const { products } = useAppContext();
   const newArrivals = useMemo(
-    () => products.filter((item) => item.inStock).slice(0, 10),
+    () => products.slice(0, 10),
     [products],
   );
 

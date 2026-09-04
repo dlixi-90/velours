@@ -6,7 +6,7 @@ import Item from "./Item";
 const PopularProducts = () => {
   const { products } = useAppContext();
   const popularProducts = useMemo(
-    () => products.filter((item) => item.popular && item.inStock).slice(0, 4),
+    () => products.filter((item) => item.popular).slice(0, 4),
     [products],
   );
   return (

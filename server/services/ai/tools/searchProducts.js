@@ -1,6 +1,7 @@
 import Product from "../../../models/Product.js";
 import {
   getAvailableProductOptions,
+  getProductOptions,
   getProductPriceRange,
 } from "./productToolUtils.js";
 
@@ -8,6 +9,7 @@ const DEFAULT_RESULT_LIMIT = 5;
 const MAX_RESULT_LIMIT = 8;
 const ALLOWED_CATEGORIES = ["Hair Care", "Body Care", "Face Care"];
 const ALLOWED_SORTS = ["relevant", "price_asc", "price_desc", "newest"];
+const ALLOWED_AVAILABILITY = ["all", "available", "out_of_stock"];
 
 const escapeRegExp = (value) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -60,7 +62,7 @@ export const searchProductsToolDefinition = {
   function: {
     name: "searchProducts",
     description:
-      "Tìm sản phẩm thật trong catalog Velours. Dùng tool này khi người dùng hỏi về tên sản phẩm, loại, danh mục, giá, size, tình trạng còn hàng hoặc cần gợi ý sản phẩm đang bán.",
+      "Tìm sản phẩm thật trong toàn bộ catalog Velours, bao gồm cả sản phẩm hết hàng. Dùng tool này khi người dùng hỏi về tên sản phẩm, loại, danh mục, giá, size, tình trạng còn hàng hoặc cần gợi ý sản phẩm đang bán.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -99,6 +101,12 @@ export const searchProductsToolDefinition = {
           description:
             "Cách sắp xếp: liên quan nhất, giá tăng, giá giảm hoặc mới nhất.",
         },
+        availability: {
+          type: "string",
+          enum: ALLOWED_AVAILABILITY,
+          description:
+            "Lọc theo tồn kho: all để tra cứu toàn bộ catalog, available cho sản phẩm mua được, out_of_stock cho sản phẩm đã hết hàng. Mặc định là all.",
+        },
         limit: {
           type: "integer",
           minimum: 1,
@@ -125,6 +133,7 @@ export const searchProducts = async (argumentsValue = {}) => {
   const minPrice = readOptionalPrice(argumentsValue.minPrice, "minPrice");
   const maxPrice = readOptionalPrice(argumentsValue.maxPrice, "maxPrice");
   const sort = argumentsValue.sort || "relevant";
+  const availability = argumentsValue.availability || "all";
   const limit = argumentsValue.limit ?? DEFAULT_RESULT_LIMIT;
 
   if (category && !ALLOWED_CATEGORIES.includes(category)) {
@@ -133,6 +142,10 @@ export const searchProducts = async (argumentsValue = {}) => {
 
   if (!ALLOWED_SORTS.includes(sort)) {
     throw new Error("sort không hợp lệ");
+  }
+
+  if (!ALLOWED_AVAILABILITY.includes(availability)) {
+    throw new Error("availability không hợp lệ");
   }
 
   if (!Number.isInteger(limit) || limit < 1 || limit > MAX_RESULT_LIMIT) {
@@ -145,7 +158,6 @@ export const searchProducts = async (argumentsValue = {}) => {
 
   const databaseFilter = {
     isDeleted: { $ne: true },
-    inStock: true,
   };
 
   if (query) {
@@ -177,8 +189,15 @@ export const searchProducts = async (argumentsValue = {}) => {
   const matchingProducts = databaseProducts
     .map((product) => {
       const availableOptions = getAvailableProductOptions(product);
+      const isAvailable = availableOptions.length > 0;
 
-      const matchingOptions = availableOptions.filter(
+      if (availability === "available" && !isAvailable) return null;
+      if (availability === "out_of_stock" && isAvailable) return null;
+
+      const productOptions = getProductOptions(product);
+      const searchableOptions = isAvailable ? availableOptions : productOptions;
+
+      const matchingOptions = searchableOptions.filter(
         (option) =>
           (minPrice === null || option.amount >= minPrice) &&
           (maxPrice === null || option.amount <= maxPrice),
@@ -193,7 +212,9 @@ export const searchProducts = async (argumentsValue = {}) => {
         category: product.category,
         type: product.type,
         popular: Boolean(product.popular),
-        availableOptions: matchingOptions,
+        isAvailable,
+        availableOptions: isAvailable ? matchingOptions : [],
+        productOptions,
         priceRange: getProductPriceRange(matchingOptions),
         image: product.images?.[0] || null,
         url: `/collection/${product._id}`,
@@ -234,10 +255,11 @@ export const searchProducts = async (argumentsValue = {}) => {
       minPrice,
       maxPrice,
       sort,
+      availability,
     },
     message:
       products.length > 0
-        ? "Các sản phẩm này được lấy trực tiếp từ catalog Velours."
-        : "Không tìm thấy sản phẩm đang bán phù hợp với điều kiện.",
+        ? "Các sản phẩm này được lấy trực tiếp từ catalog Velours; hãy kiểm tra isAvailable trước khi tư vấn mua hàng."
+        : "Không tìm thấy sản phẩm phù hợp với điều kiện.",
   };
 };
