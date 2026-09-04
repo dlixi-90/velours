@@ -105,7 +105,12 @@ export const AppContextProvider = ({ children }) => {
   };
 
   // Add Product to the cart
-  const addToCart = async (itemId, size, quantity = 1) => {
+  const addToCart = async (
+    itemId,
+    size,
+    quantity = 1,
+    onOptimisticSuccess,
+  ) => {
     const addedQuantity = Number(quantity);
 
     if (!size) {
@@ -151,6 +156,7 @@ export const AppContextProvider = ({ children }) => {
     setCartItems((currentCart) =>
       setCartItemQuantity(currentCart, itemId, size, nextQuantity),
     );
+    onOptimisticSuccess?.();
 
     if (!user) {
       return { success: true, quantity: nextQuantity };
@@ -178,7 +184,6 @@ export const AppContextProvider = ({ children }) => {
         ),
       );
 
-      toast.success(data.message);
       return {
         success: true,
         quantity: Number(data.quantity ?? nextQuantity),

@@ -2,12 +2,14 @@ import { useMemo } from "react";
 import { useAppContext } from "../context/AppContext";
 import { getShippingCharge } from "../utils/orderPricing";
 import { formatThousandsVnd } from "../utils/money";
+import { getCartItemKey } from "../utils/cartSelection";
 
 const CartTotal = ({
   currentStep,
   onCheckout,
   onBack,
   isSubmitting = false,
+  selectedItemKeys,
 }) => {
   const {
     products,
@@ -16,8 +18,6 @@ const CartTotal = ({
     method,
     setMethod,
     delivery_charges,
-    getCartCount,
-    getCartAmount,
   } = useAppContext();
 
   const orderItems = useMemo(() => {
@@ -31,7 +31,9 @@ const CartTotal = ({
       for (const size in cartItems[productId]) {
         const quantity = Number(cartItems[productId][size]);
 
-        if (quantity > 0) {
+        const itemKey = getCartItemKey(productId, size);
+
+        if (quantity > 0 && selectedItemKeys.has(itemKey)) {
           result.push({
             product,
             size,
@@ -42,10 +44,19 @@ const CartTotal = ({
     }
 
     return result;
-  }, [products, cartItems]);
+  }, [products, cartItems, selectedItemKeys]);
 
-  const subtotal = getCartAmount();
-  const shipping = getShippingCharge(subtotal, delivery_charges);
+  const selectedCount = orderItems.reduce(
+    (total, item) => total + item.quantity,
+    0,
+  );
+  const subtotal = orderItems.reduce(
+    (total, item) =>
+      total + Number(item.product.price[item.size]) * item.quantity,
+    0,
+  );
+  const shipping =
+    subtotal > 0 ? getShippingCharge(subtotal, delivery_charges) : 0;
   const total = subtotal + shipping;
 
   const formatPrice = (value) => formatThousandsVnd(value, currency);
@@ -58,7 +69,7 @@ const CartTotal = ({
         </h3>
 
         <span className="whitespace-nowrap bold-14 text-secondary">
-          ({getCartCount()}) Items
+          ({selectedCount}) Selected
         </span>
       </div>
 
@@ -181,7 +192,7 @@ const CartTotal = ({
         <button
           type="button"
           onClick={onCheckout}
-          disabled={getCartCount() === 0}
+          disabled={selectedCount === 0}
           className="btn-dark mt-8 w-full !rounded-md disabled:cursor-not-allowed disabled:opacity-50"
         >
           Proceed to Checkout

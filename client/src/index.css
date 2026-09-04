@@ -11,6 +11,54 @@
   --color-gray-50: #7b7b7b;
 }
 
+@keyframes cart-add-bounce {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  38% {
+    transform: scale(1.28) rotate(-8deg);
+  }
+  68% {
+    transform: scale(0.92) rotate(4deg);
+  }
+}
+
+@keyframes cart-add-ring {
+  from {
+    opacity: 0.55;
+    transform: scale(0.65);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.8);
+  }
+}
+
+.cart-add-feedback {
+  animation: cart-add-bounce 620ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.cart-add-feedback::after {
+  position: absolute;
+  inset: -5px;
+  border: 2px solid rgb(5 150 105 / 55%);
+  border-radius: 9999px;
+  content: "";
+  pointer-events: none;
+  animation: cart-add-ring 620ms ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cart-add-feedback {
+    animation: none;
+  }
+
+  .cart-add-feedback::after {
+    animation-duration: 1ms;
+  }
+}
+
 html, body {
   background-color: white;
   color: #000000cc;

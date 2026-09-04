@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Minus, Plus, ShieldCheck, Truck } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, Minus, Plus, ShieldCheck, Truck } from "lucide-react";
 import { useParams } from "react-router-dom";
 import ProductDescription from "../components/ProductDescription";
 import ProductFeatures from "../components/ProductFeatures";
@@ -14,6 +14,7 @@ import {
 } from "../utils/productStock";
 import { FREE_SHIPPING_THRESHOLD } from "../utils/orderPricing";
 import { formatThousandsVnd } from "../utils/money";
+import { flyProductToCart } from "../utils/cartAnimation";
 
 const MAX_QUANTITY_PER_ADD = 10;
 
@@ -22,6 +23,9 @@ const ProductDetail = () => {
   const [selectedImage, setSelectedImage] = useState(null);
   const [selectedSize, setSelectedSize] = useState(null);
   const [quantity, setQuantity] = useState(1);
+  const [addStatus, setAddStatus] = useState("idle");
+  const productImageRef = useRef(null);
+  const addedResetTimerRef = useRef(null);
 
   const { productId } = useParams();
   const product = products.find((item) => item._id === productId);
@@ -47,6 +51,39 @@ const ProductDetail = () => {
     setSelectedSize(nextSize);
     setQuantity(1);
   };
+
+  const handleAddToCart = async () => {
+    if (addStatus === "adding") return;
+
+    setAddStatus("adding");
+    const showAddedFeedback = () => {
+      flyProductToCart({
+        imageSrc: image,
+        sourceElement: productImageRef.current,
+      });
+      setAddStatus("added");
+      window.clearTimeout(addedResetTimerRef.current);
+      addedResetTimerRef.current = window.setTimeout(
+        () => setAddStatus("idle"),
+        1500,
+      );
+    };
+    const result = await addToCart(
+      product._id,
+      size,
+      safeQuantity,
+      showAddedFeedback,
+    );
+
+    if (!result.success) {
+      setAddStatus("idle");
+    }
+  };
+
+  useEffect(
+    () => () => window.clearTimeout(addedResetTimerRef.current),
+    [],
+  );
 
   if (!product) return null;
 
@@ -82,6 +119,7 @@ const ProductDetail = () => {
 
             <div className="flex min-h-[320px] flex-1 items-center justify-center overflow-hidden rounded-2xl bg-[#f5f5f0] p-8 sm:min-h-[420px] sm:p-12 lg:min-h-[480px] lg:max-h-[520px]">
               <img
+                ref={productImageRef}
                 src={image}
                 alt={product.title}
                 className="h-auto max-h-[470px] w-auto max-w-[82%] object-contain"
@@ -178,11 +216,22 @@ const ProductDetail = () => {
 
             <button
               type="button"
-              onClick={() => addToCart(product._id, size, safeQuantity)}
-              disabled={!selectedSizeAvailable}
-              className="h-12 flex-1 rounded-lg bg-[#242424] px-5 text-xs font-medium uppercase tracking-[0.12em] text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-45"
+              onClick={handleAddToCart}
+              disabled={!selectedSizeAvailable || addStatus === "adding"}
+              className={`h-12 flex-1 rounded-lg px-5 text-xs font-medium uppercase tracking-[0.12em] text-white transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                addStatus === "added"
+                  ? "bg-emerald-600"
+                  : "bg-[#242424] hover:bg-black"
+              }`}
             >
-              Add to cart
+              <span className="flex items-center justify-center gap-2">
+                {addStatus === "added" && <Check size={16} />}
+                {addStatus === "adding"
+                  ? "Adding..."
+                  : addStatus === "added"
+                    ? "Added!"
+                    : "Add to cart"}
+              </span>
             </button>
           </div>
 

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
+import { Check } from "lucide-react";
 import Title from "../components/Title";
 import CartTotal from "../components/CartTotal";
 import CartSteps from "../components/CartSteps";
@@ -8,6 +9,43 @@ import CheckoutAddressForm from "../components/checkout/CheckoutAddressForm";
 import { useAppContext } from "../context/AppContext";
 import { assets } from "../assets/data";
 import { formatThousandsVnd } from "../utils/money";
+import { getCartItemKey } from "../utils/cartSelection";
+
+const CartCheckbox = ({
+  checked,
+  onChange,
+  label,
+  indeterminate = false,
+  inputRef,
+}) => (
+  <label
+    className="group flex cursor-pointer items-center justify-center rounded-md p-2"
+    title={label}
+  >
+    <input
+      ref={inputRef}
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      aria-label={label}
+      className="peer sr-only"
+    />
+    <span
+      aria-hidden="true"
+      className={`flex h-[22px] w-[22px] items-center justify-center rounded-md border-2 transition-all duration-200 peer-focus-visible:ring-2 peer-focus-visible:ring-secondary/40 peer-focus-visible:ring-offset-2 ${
+        checked || indeterminate
+          ? "border-secondary bg-secondary text-white shadow-sm"
+          : "border-[#c8ccc9] bg-white group-hover:border-secondary"
+      }`}
+    >
+      {indeterminate ? (
+        <span className="h-0.5 w-2.5 rounded-full bg-white" />
+      ) : checked ? (
+        <Check size={15} strokeWidth={3} />
+      ) : null}
+    </span>
+  </label>
+);
 
 const Cart = () => {
   const {
@@ -25,6 +63,10 @@ const Cart = () => {
   const [highestStep, setHighestStep] = useState(1);
   const [createdOrder, setCreatedOrder] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deselectedItemKeys, setDeselectedItemKeys] = useState(
+    () => new Set(),
+  );
+  const selectAllRef = useRef(null);
 
   const cartData = useMemo(() => {
     if (products.length === 0) return [];
@@ -44,6 +86,50 @@ const Cart = () => {
 
     return result;
   }, [products, cartItems]);
+
+  const selectedItemKeys = useMemo(
+    () =>
+      new Set(
+        cartData
+          .map((item) => getCartItemKey(item._id, item.size))
+          .filter((itemKey) => !deselectedItemKeys.has(itemKey)),
+      ),
+    [cartData, deselectedItemKeys],
+  );
+  const allItemsSelected =
+    cartData.length > 0 && selectedItemKeys.size === cartData.length;
+  const someItemsSelected =
+    selectedItemKeys.size > 0 && selectedItemKeys.size < cartData.length;
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someItemsSelected;
+    }
+  }, [someItemsSelected]);
+
+  const toggleItemSelection = (itemKey) => {
+    setDeselectedItemKeys((currentKeys) => {
+      const nextKeys = new Set(currentKeys);
+
+      if (nextKeys.has(itemKey)) {
+        nextKeys.delete(itemKey);
+      } else {
+        nextKeys.add(itemKey);
+      }
+
+      return nextKeys;
+    });
+  };
+
+  const toggleAllItems = () => {
+    setDeselectedItemKeys(
+      allItemsSelected
+        ? new Set(
+            cartData.map((item) => getCartItemKey(item._id, item.size)),
+          )
+        : new Set(),
+    );
+  };
 
   useEffect(() => {
     if (!user) return undefined;
@@ -88,8 +174,8 @@ const Cart = () => {
   };
 
   const handleCheckout = () => {
-    if (cartData.length === 0) {
-      return toast.error("Your cart is empty");
+    if (selectedItemKeys.size === 0) {
+      return toast.error("Please select at least one product");
     }
 
     if (!user) {
@@ -141,7 +227,17 @@ const Cart = () => {
 
             {cartData.length > 0 ? (
               <>
-                <div className="grid grid-cols-[minmax(0,6fr)_2fr_1fr] rounded-xl bg-white p-3 font-medium">
+                <div className="grid grid-cols-[60px_minmax(0,6fr)_2fr_1fr] items-center rounded-xl bg-white p-3 font-medium sm:grid-cols-[72px_minmax(0,6fr)_2fr_1fr]">
+                  <div className="flex justify-center">
+                    <CartCheckbox
+                      inputRef={selectAllRef}
+                      checked={allItemsSelected}
+                      onChange={toggleAllItems}
+                      indeterminate={someItemsSelected}
+                      label="Select all products"
+                    />
+                  </div>
+
                   <h5 className="h5 text-left">Product Details</h5>
 
                   <h5 className="h5 text-center">Subtotal</h5>
@@ -159,14 +255,26 @@ const Cart = () => {
                   const quantity = Number(
                     cartItems[item._id]?.[item.size] ?? 0,
                   );
+                  const itemKey = getCartItemKey(item._id, item.size);
+                  const isSelected = selectedItemKeys.has(itemKey);
 
                   if (quantity <= 0) return null;
 
                   return (
                     <div
                       key={`${item._id}-${item.size}`}
-                      className="grid grid-cols-[minmax(0,6fr)_2fr_1fr] items-center rounded-xl bg-white p-3"
+                      className={`grid grid-cols-[60px_minmax(0,6fr)_2fr_1fr] items-center rounded-xl p-3 transition sm:grid-cols-[72px_minmax(0,6fr)_2fr_1fr] ${
+                        isSelected ? "bg-white" : "bg-white/60"
+                      }`}
                     >
+                      <div className="flex justify-center">
+                        <CartCheckbox
+                          checked={isSelected}
+                          onChange={() => toggleItemSelection(itemKey)}
+                          label={`Select ${product.title}, size ${item.size}`}
+                        />
+                      </div>
+
                       <div className="flex min-w-0 items-center gap-3 md:gap-6">
                         <div className="flex rounded-xl bg-primary">
                           <img
@@ -260,7 +368,11 @@ const Cart = () => {
           {/* CartTotal luôn bên phải */}
           <aside className="w-full xl:w-[379px] xl:flex-none">
             <div className="w-full rounded-xl bg-white p-5 py-10 xl:sticky xl:top-28">
-              <CartTotal currentStep={1} onCheckout={handleCheckout} />
+              <CartTotal
+                currentStep={1}
+                onCheckout={handleCheckout}
+                selectedItemKeys={selectedItemKeys}
+              />
             </div>
           </aside>
         </div>
@@ -274,6 +386,7 @@ const Cart = () => {
             onOrderCreated={handleOrderCreated}
             isSubmitting={isSubmitting}
             setIsSubmitting={setIsSubmitting}
+            selectedItemKeys={selectedItemKeys}
           />
 
           {/* CartTotal vẫn bên phải */}
@@ -282,6 +395,7 @@ const Cart = () => {
               <CartTotal
                 currentStep={2}
                 isSubmitting={isSubmitting}
+                selectedItemKeys={selectedItemKeys}
                 onBack={() => {
                   setCurrentStep(1);
                   window.scrollTo(0, 0);

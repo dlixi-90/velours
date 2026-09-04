@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useAppContext } from "../context/AppContext";
+import { removePurchasedItems } from "../utils/cartSelection";
 
 const QrPaymentStatus = ({ initialOrder, onExpired }) => {
   const { axios, getToken, navigate, setCartItems, fetchProducts } =
@@ -9,6 +10,7 @@ const QrPaymentStatus = ({ initialOrder, onExpired }) => {
   const [order, setOrder] = useState(initialOrder);
   const [isChecking, setIsChecking] = useState(false);
   const [hasShownSuccess, setHasShownSuccess] = useState(false);
+  const hasSyncedCartRef = useRef(false);
 
   const checkPayment = useCallback(
     async (showError = false) => {
@@ -37,7 +39,12 @@ const QrPaymentStatus = ({ initialOrder, onExpired }) => {
             setHasShownSuccess(true);
           }
         } else if (data.order.isPaid) {
-          setCartItems({});
+          if (!hasSyncedCartRef.current) {
+            setCartItems((currentCart) =>
+              removePurchasedItems(currentCart, initialOrder.items),
+            );
+            hasSyncedCartRef.current = true;
+          }
 
           if (!hasShownSuccess) {
             toast.success("Payment successful!");
@@ -69,6 +76,7 @@ const QrPaymentStatus = ({ initialOrder, onExpired }) => {
       fetchProducts,
       getToken,
       initialOrder._id,
+      initialOrder.items,
       setCartItems,
       hasShownSuccess,
     ],

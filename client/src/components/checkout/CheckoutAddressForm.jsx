@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { useAppContext } from "../../context/AppContext";
+import {
+  getCartItemKey,
+  removePurchasedItems,
+} from "../../utils/cartSelection";
 
 const COUNTRIES_NOW_API = "https://countriesnow.space/api/v0.1";
 const VIETNAM_PROVINCES_API = "https://provinces.open-api.vn/api/v2/?depth=2";
@@ -75,6 +79,7 @@ const CheckoutAddressForm = ({
   onOrderCreated,
   isSubmitting,
   setIsSubmitting,
+  selectedItemKeys,
 }) => {
   const {
     user,
@@ -107,7 +112,9 @@ const CheckoutAddressForm = ({
       for (const size in cartItems[productId]) {
         const quantity = Number(cartItems[productId][size]);
 
-        if (quantity > 0) {
+        const itemKey = getCartItemKey(productId, size);
+
+        if (quantity > 0 && selectedItemKeys.has(itemKey)) {
           result.push({
             product: productId,
             size,
@@ -118,7 +125,7 @@ const CheckoutAddressForm = ({
     }
 
     return result;
-  }, [products, cartItems]);
+  }, [products, cartItems, selectedItemKeys]);
 
   useEffect(() => {
     if (!user) return;
@@ -328,7 +335,9 @@ const CheckoutAddressForm = ({
       }
 
       if (method === "COD") {
-        setCartItems({});
+        setCartItems((currentCart) =>
+          removePurchasedItems(currentCart, items),
+        );
       }
 
       await fetchProducts();

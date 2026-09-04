@@ -108,15 +108,18 @@ const Header = () => {
               />
             </div>
             {/* Cart */}
-            <div
+            <button
+              type="button"
               onClick={() => navigate("/cart")}
+              data-cart-target
+              aria-label={`Shopping cart with ${getCartCount()} items`}
               className="relative cursor-pointer"
             >
               <img src={assets.cartAdded} alt="" className="min-w-7" />
-              <label className="absolute bottom-7 right-0 left-0 text-xs font-bold bg-secondary/15 flexCenter rounded-full">
+              <span className="absolute bottom-7 right-0 left-0 text-xs font-bold bg-secondary/15 flexCenter rounded-full">
                 {getCartCount()}
-              </label>
-            </div>
+              </span>
+            </button>
             {/* User Profile */}
             <div className="group">
               {user ? (
