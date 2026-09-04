@@ -6,10 +6,10 @@ import crypto from "crypto";
 import Address from "../models/Address.js";
 import mongoose, { isObjectIdOrHexString } from "mongoose";
 import { getSizeQuantity, isSizeAvailable } from "../utils/productStock.js";
+import { getOrderTotal } from "../utils/orderPricing.js";
 
 // Global variables for payment
-const currency = "VND";
-const delivery_charges = 30;
+const orderStatuses = ["Order Placed", "Packing", "Shipping", "Delivery"];
 const parsedQrReservationMinutes = Number(
   process.env.QR_RESERVATION_MINUTES || 15,
 );
@@ -25,6 +25,14 @@ class OrderRequestError extends Error {
   }
 }
 
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+
 const sendOrderError = (res, error) => {
   const statusCode = error.statusCode || 500;
 
@@ -34,7 +42,7 @@ const sendOrderError = (res, error) => {
 
   return res.status(statusCode).json({
     success: false,
-    message: error.message,
+    message: statusCode === 500 ? "Unable to process order" : error.message,
   });
 };
 
@@ -56,6 +64,10 @@ const runInTransaction = async (operation) => {
 const validateUserAddress = async (addressId, userId, session) => {
   if (!addressId) {
     throw new OrderRequestError("Please provide a delivery address");
+  }
+
+  if (!isObjectIdOrHexString(addressId)) {
+    throw new OrderRequestError("Invalid delivery address");
   }
 
   const addressQuery = Address.findOne({
@@ -174,6 +186,10 @@ const validateOrderItems = async (items, session) => {
     }
 
     subtotal += unitPrice * item.quantity;
+
+    if (!Number.isFinite(subtotal) || subtotal > Number.MAX_SAFE_INTEGER / 1000) {
+      throw new OrderRequestError("Order total is too large");
+    }
   }
 
   return {
@@ -182,6 +198,18 @@ const validateOrderItems = async (items, session) => {
     productsById,
   };
 };
+
+const createOrderItemSnapshots = (validatedOrder) =>
+  validatedOrder.items.map((item) => {
+    const product = validatedOrder.productsById.get(item.product);
+
+    return {
+      ...item,
+      title: product.title,
+      image: product.images?.[0] || undefined,
+      unitPrice: Number(product.price?.[item.size]),
+    };
+  });
 
 const syncProductStockStatus = (product, restoredSizes = new Set()) => {
   const inStockBySize = {};
@@ -198,9 +226,11 @@ const syncProductStockStatus = (product, restoredSizes = new Set()) => {
   }
 
   product.inStockBySize = inStockBySize;
+  const hasEnabledSize = Object.values(inStockBySize).some(Boolean);
   product.inStock =
     !product.isDeleted &&
-    (product.sizes || []).some((size) => getSizeQuantity(product, size) > 0);
+    hasEnabledSize &&
+    (restoredSizes.size > 0 || Boolean(product.inStock));
   product.markModified("stockBySize");
   product.markModified("inStockBySize");
 };
@@ -359,7 +389,8 @@ export const placeOrderCOD = async (req, res) => {
         session,
       );
       const validatedOrder = await validateOrderItems(items, session);
-      const totalAmount = validatedOrder.subtotal + delivery_charges;
+      const totalAmount = getOrderTotal(validatedOrder.subtotal);
+      const orderItems = createOrderItemSnapshots(validatedOrder);
 
       await reserveOrderStock(validatedOrder, session);
 
@@ -367,7 +398,7 @@ export const placeOrderCOD = async (req, res) => {
         [
           {
             userId,
-            items: validatedOrder.items,
+            items: orderItems,
             amount: totalAmount,
             address: selectedAddress._id,
             paymentMethod: "COD",
@@ -391,7 +422,7 @@ export const placeOrderCOD = async (req, res) => {
     const user = await User.findById(userId);
 
     const productTitles = populatedOrder.items
-      .map((item) => item.product?.title || "Unknown")
+      .map((item) => item.title || item.product?.title || "Unknown")
       .join(", ");
     const addressString = populatedOrder.address
       ? `${populatedOrder.address.street || "N/A"}, ${populatedOrder.address.city || "N/A"}, ${populatedOrder.address.state || "N/A"}, ${populatedOrder.address.country || "N/A"}`
@@ -405,10 +436,10 @@ export const placeOrderCOD = async (req, res) => {
       <h2>Your Delivery Details</h2>
       <p>Thank you for your Order! Below are your Order details:</p>
       <ul>
-        <li><strong>Order ID:</strong> ${populatedOrder._id}</li>
-        <li><strong>Products Name:</strong> ${productTitles}</li>
-        <li><strong>Address:</strong> ${addressString}</li>
-        <li><strong>Total Amount:</strong> ${process.env.CURRENCY || "VNĐ"}${populatedOrder.amount}</li>
+        <li><strong>Order ID:</strong> ${escapeHtml(populatedOrder._id)}</li>
+        <li><strong>Products Name:</strong> ${escapeHtml(productTitles)}</li>
+        <li><strong>Address:</strong> ${escapeHtml(addressString)}</li>
+        <li><strong>Total Amount:</strong> ${Math.round(Number(populatedOrder.amount) * 1000).toLocaleString("vi-VN")} ${escapeHtml(process.env.CURRENCY || "VND")}</li>
       </ul>
       <p>You will get your delivery in 1-2 Days. Pay on delivery</p>
       `,
@@ -463,6 +494,25 @@ export const placeOrderQr = async (req, res) => {
     const { userId } = req.auth();
     await releaseExpiredQrReservations();
 
+    const pendingOrder = await Order.findOne({
+      userId,
+      paymentMethod: "QR",
+      isPaid: false,
+      status: "Awaiting Payment",
+      paymentExpiresAt: { $gt: new Date() },
+    }).sort({ createdAt: -1 });
+
+    if (pendingOrder) {
+      return res.json({
+        success: true,
+        message: "Pending QR payment restored",
+        order: {
+          ...pendingOrder.toObject(),
+          qrUrl: createQrUrl(pendingOrder),
+        },
+      });
+    }
+
     const paymentCode = createPaymentCode();
     const paymentExpiresAt = new Date(
       Date.now() + qrReservationMinutes * 60 * 1000,
@@ -475,10 +525,11 @@ export const placeOrderQr = async (req, res) => {
         session,
       );
       const validatedOrder = await validateOrderItems(items, session);
-      const totalAmount = validatedOrder.subtotal + delivery_charges;
+      const totalAmount = getOrderTotal(validatedOrder.subtotal);
+      const orderItems = createOrderItemSnapshots(validatedOrder);
 
       // Giá trong project đang biểu diễn 30 = 30.000 VNĐ.
-      const qrAmount = totalAmount * 1000;
+      const qrAmount = Math.round(totalAmount * 1000);
 
       await reserveOrderStock(validatedOrder, session);
 
@@ -486,7 +537,7 @@ export const placeOrderQr = async (req, res) => {
         [
           {
             userId,
-            items: validatedOrder.items,
+            items: orderItems,
             amount: totalAmount,
             address: selectedAddress._id,
             paymentMethod: "QR",
@@ -556,8 +607,35 @@ export const getOrderStatus = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Unable to load order status",
     });
+  }
+};
+
+export const getPendingQrOrder = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+    await releaseExpiredQrReservations();
+
+    const order = await Order.findOne({
+      userId,
+      paymentMethod: "QR",
+      isPaid: false,
+      status: "Awaiting Payment",
+      paymentExpiresAt: { $gt: new Date() },
+    }).sort({ createdAt: -1 });
+
+    return res.json({
+      success: true,
+      order: order
+        ? {
+            ...order.toObject(),
+            qrUrl: createQrUrl(order),
+          }
+        : null,
+    });
+  } catch (error) {
+    return sendOrderError(res, error);
   }
 };
 
@@ -565,8 +643,15 @@ export const sepayWebhook = async (req, res) => {
   try {
     const authorization = req.get("authorization") || "";
     const apiKey = authorization.replace(/^Apikey\s+/i, "").trim();
+    const configuredApiKey = process.env.SEPAY_WEBHOOK_API_KEY || "";
+    const receivedKey = Buffer.from(apiKey);
+    const expectedKey = Buffer.from(configuredApiKey);
 
-    if (apiKey !== process.env.SEPAY_WEBHOOK_API_KEY) {
+    if (
+      !configuredApiKey ||
+      receivedKey.length !== expectedKey.length ||
+      !crypto.timingSafeEqual(receivedKey, expectedKey)
+    ) {
       return res.status(401).json({
         success: false,
         message: "Invalid webhook API key",
@@ -580,9 +665,23 @@ export const sepayWebhook = async (req, res) => {
       return res.json({ success: true });
     }
 
+    const transactionId = String(id ?? "").trim();
+    const receivedAmount = Number(transferAmount);
+
+    if (
+      !transactionId ||
+      !Number.isFinite(receivedAmount) ||
+      receivedAmount <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment transaction",
+      });
+    }
+
     // SePay có thể gửi lại cùng một giao dịch
     const processedOrder = await Order.findOne({
-      transactionId: String(id),
+      transactionId,
     });
 
     if (processedOrder) {
@@ -603,12 +702,22 @@ export const sepayWebhook = async (req, res) => {
         return "ignored";
       }
 
-      if (Number(transferAmount) < Number(order.qrAmount)) {
+      const expectedAmount = Number(order.qrAmount);
+
+      if (
+        !Number.isFinite(expectedAmount) ||
+        expectedAmount <= 0 ||
+        receivedAmount < expectedAmount
+      ) {
         return "insufficient";
       }
 
+      if (!["Awaiting Payment", "Payment Expired"].includes(order.status)) {
+        return "ignored";
+      }
+
       order.isPaid = true;
-      order.transactionId = String(id);
+      order.transactionId = transactionId;
       order.paidAt = new Date();
 
       if (order.status === "Payment Expired") {
@@ -633,10 +742,6 @@ export const sepayWebhook = async (req, res) => {
         }
       }
 
-      if (order.status !== "Awaiting Payment") {
-        return "ignored";
-      }
-
       order.status = "Order Placed";
 
       await order.save({ session });
@@ -655,7 +760,7 @@ export const sepayWebhook = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Unable to process payment webhook",
     });
   }
 };
@@ -671,10 +776,13 @@ export const userOrders = async (req, res) => {
       .populate("items.product address")
       .sort({ createdAt: -1 });
 
-    res.json({ success: true, orders });
+    return res.json({ success: true, orders });
   } catch (error) {
     console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load orders",
+    });
   }
 };
 
@@ -692,13 +800,16 @@ export const allOrders = async (req, res) => {
       (acc, o) => acc + (o.isPaid ? o.amount : 0),
       0,
     );
-    res.json({
+    return res.json({
       success: true,
       dashboardData: { totalOrders, totalRevenue, orders },
     });
   } catch (error) {
     console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load orders",
+    });
   }
 };
 
@@ -706,11 +817,53 @@ export const allOrders = async (req, res) => {
 export const updateStatus = async (req, res) => {
   try {
     const { orderId, status } = req.body;
-    await Order.findByIdAndUpdate(orderId, { status });
 
-    res.json({ success: true, message: "Order status updated" });
+    if (!isObjectIdOrHexString(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order ID",
+      });
+    }
+
+    if (!orderStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order status",
+      });
+    }
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+    }
+
+    order.status = status;
+
+    if (
+      order.paymentMethod === "COD" &&
+      status === "Delivery" &&
+      !order.isPaid
+    ) {
+      order.isPaid = true;
+      order.paidAt = new Date();
+    }
+
+    await order.save();
+
+    return res.json({
+      success: true,
+      message: "Order status updated",
+      order,
+    });
   } catch (error) {
     console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: "Unable to update order status",
+    });
   }
 };

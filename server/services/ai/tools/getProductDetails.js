@@ -1,0 +1,85 @@
+import { isValidObjectId } from "mongoose";
+import Product from "../../../models/Product.js";
+import {
+  getAvailableProductOptions,
+  getProductPriceRange,
+} from "./productToolUtils.js";
+
+const MAX_DESCRIPTION_LENGTH = 2000;
+
+export const getProductDetailsToolDefinition = {
+  type: "function",
+  function: {
+    name: "getProductDetails",
+    description:
+      "Lấy thông tin chi tiết của một sản phẩm Velours khi đã biết productId. Dùng khi người dùng hỏi kỹ hơn về một sản phẩm cụ thể, giá theo size, mô tả hoặc tình trạng còn bán.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        productId: {
+          type: "string",
+          description:
+            "MongoDB ObjectId của sản phẩm, thường lấy từ kết quả searchProducts hoặc URL /collection/:productId.",
+        },
+      },
+      required: ["productId"],
+    },
+  },
+};
+
+export const getProductDetails = async (argumentsValue = {}) => {
+  if (
+    !argumentsValue ||
+    typeof argumentsValue !== "object" ||
+    Array.isArray(argumentsValue)
+  ) {
+    throw new Error("Tham số sản phẩm không hợp lệ");
+  }
+
+  const productId = String(argumentsValue.productId || "").trim();
+
+  if (!isValidObjectId(productId)) {
+    throw new Error("productId không hợp lệ");
+  }
+
+  const product = await Product.findOne({
+    _id: productId,
+    isDeleted: { $ne: true },
+  })
+    .select(
+      "title description price sizes stockBySize inStockBySize images category type popular inStock",
+    )
+    .lean();
+
+  if (!product) {
+    return {
+      found: false,
+      product: null,
+      message: "Không tìm thấy sản phẩm hoặc sản phẩm đã ngừng bán.",
+    };
+  }
+
+  const availableOptions = getAvailableProductOptions(product);
+
+  return {
+    found: true,
+    product: {
+      id: String(product._id),
+      title: product.title,
+      description: product.description.slice(0, MAX_DESCRIPTION_LENGTH),
+      category: product.category,
+      type: product.type,
+      popular: Boolean(product.popular),
+      isAvailable: availableOptions.length > 0,
+      availableOptions,
+      priceRange: getProductPriceRange(availableOptions),
+      image: product.images?.[0] || null,
+      url: `/collection/${product._id}`,
+    },
+    message:
+      availableOptions.length > 0
+        ? "Thông tin được lấy trực tiếp từ catalog Velours."
+        : "Sản phẩm hiện không có size khả dụng.",
+  };
+};

@@ -1,6 +1,6 @@
 import express from "express";
 import { upload } from "../middleware/multer.js";
-import authUser from "../middleware/authMiddleware.js";
+import authUser, { requireOwner } from "../middleware/authMiddleware.js";
 import {
   createProduct,
   deleteProduct,
@@ -12,16 +12,23 @@ import {
 
 const productRouter = express.Router();
 
-productRouter.post("/", upload.array("images", 4), authUser, createProduct);
+productRouter.post(
+  "/",
+  authUser,
+  requireOwner,
+  upload.array("images", 4),
+  createProduct,
+);
 productRouter.get("/", listProduct);
 productRouter.get("/single", singleProduct);
-productRouter.post("/toggle-stock", authUser, toggleStock);
+productRouter.post("/toggle-stock", authUser, requireOwner, toggleStock);
 productRouter.put(
   "/:productId",
-  upload.array("images", 4),
   authUser,
+  requireOwner,
+  upload.array("images", 4),
   updateProduct,
 );
-productRouter.delete("/:productId", authUser, deleteProduct);
+productRouter.delete("/:productId", authUser, requireOwner, deleteProduct);
 
 export default productRouter;

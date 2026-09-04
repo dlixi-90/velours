@@ -21,6 +21,12 @@ export const hasAnyQuantity = (product) => {
   );
 };
 
+export const hasAnyEnabledSize = (product) => {
+  return (product?.sizes || []).some(
+    (size) => getSizeQuantity(product, size) > 0 && isSizeEnabled(product, size),
+  );
+};
+
 export const isSizeAvailable = (product, size) => {
   return (
     Boolean(product?.inStock) &&

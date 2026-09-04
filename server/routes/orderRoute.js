@@ -6,20 +6,22 @@ import {
   placeOrderQr,
   userOrders,
   getOrderStatus,
+  getPendingQrOrder,
   sepayWebhook,
 } from "../controllers/orderController.js";
-import authUser from "../middleware/authMiddleware.js";
+import authUser, { requireOwner } from "../middleware/authMiddleware.js";
 
 const orderRouter = express.Router();
 
 // For Admin
 orderRouter.post("/sepay-webhook", sepayWebhook);
-orderRouter.get("/", authUser, allOrders);
-orderRouter.post("/status", authUser, updateStatus);
+orderRouter.get("/", authUser, requireOwner, allOrders);
+orderRouter.post("/status", authUser, requireOwner, updateStatus);
 
 // For Payment
 orderRouter.post("/cod", authUser, placeOrderCOD);
 orderRouter.post("/qr", authUser, placeOrderQr);
+orderRouter.get("/pending-payment", authUser, getPendingQrOrder);
 orderRouter.get("/:orderId", authUser, getOrderStatus);
 
 // For User

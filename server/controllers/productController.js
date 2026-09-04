@@ -2,13 +2,137 @@ import { v2 as cloudinary } from "cloudinary";
 import Product from "../models/Product.js";
 import { isValidObjectId } from "mongoose";
 import User from "../models/User.js";
-import { getSizeQuantity, hasAnyQuantity } from "../utils/productStock.js";
+import { unlink } from "node:fs/promises";
+import {
+  getSizeQuantity,
+  hasAnyEnabledSize,
+} from "../utils/productStock.js";
+
+class ProductRequestError extends Error {
+  constructor(message, statusCode = 400) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+const cleanupUploadedFiles = async (files = []) => {
+  await Promise.allSettled(
+    files.filter((file) => file?.path).map((file) => unlink(file.path)),
+  );
+};
+
+const parseProductData = (rawProductData) => {
+  if (typeof rawProductData !== "string") {
+    throw new ProductRequestError("Product data is required");
+  }
+
+  try {
+    return JSON.parse(rawProductData);
+  } catch {
+    throw new ProductRequestError("Invalid product data");
+  }
+};
+
+const normalizeProductData = (productData, currentProduct = null) => {
+  const title = typeof productData.title === "string" ? productData.title.trim() : "";
+  const description =
+    typeof productData.description === "string"
+      ? productData.description.trim()
+      : "";
+  const ingredients =
+    typeof productData.ingredients === "string"
+      ? productData.ingredients.trim()
+      : "";
+  const category =
+    typeof productData.category === "string" ? productData.category.trim() : "";
+  const type = typeof productData.type === "string" ? productData.type.trim() : "";
+  const rawSizes = Array.isArray(productData.sizes) ? productData.sizes : [];
+  const sizes = rawSizes.map((size) =>
+    typeof size === "string" ? size.trim() : "",
+  );
+
+  if (!title || !description || !category || !type || sizes.length === 0) {
+    throw new ProductRequestError("Invalid product data");
+  }
+
+  if (
+    title.length > 200 ||
+    description.length > 5000 ||
+    ingredients.length > 5000 ||
+    category.length > 100 ||
+    type.length > 100 ||
+    sizes.length > 50
+  ) {
+    throw new ProductRequestError("Product data is too long");
+  }
+
+  if (
+    sizes.some(
+      (size) =>
+        !size ||
+        size.length > 50 ||
+        size.includes(".") ||
+        size.startsWith("$"),
+    ) ||
+    new Set(sizes).size !== sizes.length
+  ) {
+    throw new ProductRequestError("Product sizes must be unique and valid");
+  }
+
+  const price = {};
+  const stockBySize = {};
+  const inStockBySize = {};
+
+  for (const size of sizes) {
+    const productPrice = Number(productData.price?.[size]);
+    const quantity = Number(productData.stockBySize?.[size]);
+
+    if (
+      !Number.isFinite(productPrice) ||
+      productPrice <= 0 ||
+      productPrice > Number.MAX_SAFE_INTEGER / 1000
+    ) {
+      throw new ProductRequestError(`Invalid price for size ${size}`);
+    }
+
+    if (!Number.isSafeInteger(quantity) || quantity < 0) {
+      throw new ProductRequestError(`Invalid quantity for size ${size}`);
+    }
+
+    const savedStatus = currentProduct?.inStockBySize?.[size];
+
+    price[size] = productPrice;
+    stockBySize[size] = quantity;
+    inStockBySize[size] =
+      quantity > 0 &&
+      (typeof savedStatus === "boolean" ? savedStatus : true);
+  }
+
+  return {
+    title,
+    description,
+    ingredients,
+    category,
+    type,
+    popular: Boolean(productData.popular),
+    sizes,
+    price,
+    stockBySize,
+    inStockBySize,
+  };
+};
 
 // Controller Function for Adding Product [POST '/']
 export const createProduct = async (req, res) => {
   try {
-    const productData = JSON.parse(req.body.productData);
-    const images = req.files;
+    const productData = normalizeProductData(
+      parseProductData(req.body.productData),
+    );
+    const images = req.files || [];
+
+    if (images.length === 0) {
+      throw new ProductRequestError("At least one image is required");
+    }
 
     // Upload images tp cloudinary
     const imagesUrl = await Promise.all(
@@ -20,31 +144,26 @@ export const createProduct = async (req, res) => {
       }),
     );
 
-    const sizes = Array.isArray(productData.sizes) ? productData.sizes : [];
-
-    const inStockBySize = Object.fromEntries(
-      sizes.map((size) => {
-        const quantity = Number(productData.stockBySize?.[size] ?? 0);
-
-        return [size, quantity > 0];
-      }),
-    );
-
-    const hasStock = sizes.some(
-      (size) => Number(productData.stockBySize?.[size] ?? 0) > 0,
+    const hasStock = productData.sizes.some(
+      (size) => productData.inStockBySize[size],
     );
 
     await Product.create({
       ...productData,
       images: imagesUrl,
       inStock: hasStock,
-      inStockBySize,
     });
 
-    res.json({ success: true, message: "Product Added" });
+    return res.status(201).json({ success: true, message: "Product Added" });
   } catch (error) {
-    console.log(error.message);
-    res.json({ success: false, message: error.message });
+    if (!error.statusCode) console.log(error);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message:
+        error.statusCode === 400 ? error.message : "Unable to create product",
+    });
+  } finally {
+    await cleanupUploadedFiles(req.files);
   }
 };
 
@@ -60,20 +179,45 @@ export const listProduct = async (req, res) => {
     });
     res.json({ success: true, products });
   } catch (error) {
-    console.log(error.message);
-    res.json({ success: false, message: error.message });
+    if (!error.statusCode) console.log(error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load products",
+    });
   }
 };
 
 // Controller function for get single product [GET '/single']
 export const singleProduct = async (req, res) => {
   try {
-    const { productId } = await req.body;
-    const product = await Product.findById(productId);
-    res.json({ success: true, product });
+    const productId = req.query.productId || req.body?.productId;
+
+    if (!isValidObjectId(productId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID",
+      });
+    }
+
+    const product = await Product.findOne({
+      _id: productId,
+      isDeleted: { $ne: true },
+    });
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    return res.json({ success: true, product });
   } catch (error) {
     console.log(error.message);
-    res.json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load product",
+    });
   }
 };
 
@@ -88,6 +232,13 @@ export const toggleStock = async (req, res) => {
     }
 
     const { productId, size, inStock } = req.body;
+
+    if (!isValidObjectId(productId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID",
+      });
+    }
 
     if (typeof inStock !== "boolean") {
       return res.status(400).json({
@@ -112,12 +263,12 @@ export const toggleStock = async (req, res) => {
 
     // Không truyền size: cập nhật switch tổng
     if (!size) {
-      const hasStock = hasAnyQuantity(product);
+      const hasEnabledSize = hasAnyEnabledSize(product);
 
-      if (inStock && !hasStock) {
+      if (inStock && !hasEnabledSize) {
         return res.status(400).json({
           success: false,
-          message: "Cannot enable a product when all sizes are out of stock",
+          message: "Enable at least one size before enabling the product",
         });
       }
 
@@ -156,6 +307,8 @@ export const toggleStock = async (req, res) => {
 
     product.markModified("inStockBySize");
 
+    product.inStock = hasAnyEnabledSize(product);
+
     await product.save();
 
     return res.json({
@@ -164,23 +317,21 @@ export const toggleStock = async (req, res) => {
       product,
     });
   } catch (error) {
+    console.log(error);
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Unable to update stock status",
     });
   }
 };
 
 export const updateProduct = async (req, res) => {
   try {
-    if (req.user?.role !== "owner") {
-      return res.status(403).json({
-        success: false,
-        message: "Not authorized",
-      });
-    }
-
     const { productId } = req.params;
+
+    if (!isValidObjectId(productId)) {
+      throw new ProductRequestError("Invalid product ID");
+    }
 
     const currentProduct = await Product.findOne({
       _id: productId,
@@ -196,73 +347,18 @@ export const updateProduct = async (req, res) => {
       });
     }
 
-    const productData = JSON.parse(req.body.productData);
-
-    const {
-      title,
-      description,
-      category,
-      type,
-      popular,
-      price,
-      sizes,
-      stockBySize,
-      existingImages = [],
-    } = productData;
-
-    if (
-      !title?.trim() ||
-      !description?.trim() ||
-      !category ||
-      !type ||
-      !Array.isArray(sizes) ||
-      sizes.length === 0
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid product data",
-      });
-    }
-
-    const normalizedPrices = {};
-    const normalizedStock = {};
-    const normalizedSizeStock = {};
-
-    for (const size of sizes) {
-      const productPrice = Number(price?.[size]);
-      const quantity = Number(stockBySize?.[size]);
-
-      if (!Number.isFinite(productPrice) || productPrice <= 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid price for size ${size}`,
-        });
-      }
-
-      if (!Number.isInteger(quantity) || quantity < 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid quantity for size ${size}`,
-        });
-      }
-
-      const savedSizeStatus = currentProduct.inStockBySize?.[size];
-
-      normalizedSizeStock[size] =
-        quantity > 0 &&
-        (typeof savedSizeStatus === "boolean" ? savedSizeStatus : true);
-
-      normalizedPrices[size] = productPrice;
-      normalizedStock[size] = quantity;
-    }
-
-    const hasStock = sizes.some(
-      (size) => Number(normalizedStock[size] ?? 0) > 0,
-    );
-
+    const rawProductData = parseProductData(req.body.productData);
+    const productData = normalizeProductData(rawProductData, currentProduct);
+    const existingImages = Array.isArray(rawProductData.existingImages)
+      ? rawProductData.existingImages
+      : [];
     const safeExistingImages = existingImages.filter((imageUrl) =>
       currentProduct.images.includes(imageUrl),
     );
+
+    if (safeExistingImages.length + (req.files || []).length > 4) {
+      throw new ProductRequestError("Only up to 4 images are allowed");
+    }
 
     const uploadedImages = await Promise.all(
       (req.files || []).map(async (image) => {
@@ -274,28 +370,21 @@ export const updateProduct = async (req, res) => {
       }),
     );
 
-    const images = [...safeExistingImages, ...uploadedImages].slice(0, 4);
+    const images = [...safeExistingImages, ...uploadedImages];
 
     if (images.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "At least one image is required",
-      });
+      throw new ProductRequestError("At least one image is required");
     }
+
+    const hasEnabledSize = productData.sizes.some(
+      (size) => productData.inStockBySize[size],
+    );
 
     const updatedProduct = await Product.findByIdAndUpdate(
       productId,
       {
-        title: title.trim(),
-        description: description.trim(),
-        category,
-        type,
-        popular: Boolean(popular),
-        price: normalizedPrices,
-        stockBySize: normalizedStock,
-        inStockBySize: normalizedSizeStock,
-        inStock: hasStock ? Boolean(currentProduct.inStock) : false,
-        sizes,
+        ...productData,
+        inStock: hasEnabledSize ? Boolean(currentProduct.inStock) : false,
         images,
       },
       {
@@ -304,18 +393,20 @@ export const updateProduct = async (req, res) => {
       },
     );
 
-    res.json({
+    return res.json({
       success: true,
       message: "Product updated successfully",
       product: updatedProduct,
     });
   } catch (error) {
-    console.log(error.message);
-
-    res.status(500).json({
+    if (!error.statusCode) console.log(error);
+    return res.status(error.statusCode || 500).json({
       success: false,
-      message: error.message,
+      message:
+        error.statusCode === 400 ? error.message : "Unable to update product",
     });
+  } finally {
+    await cleanupUploadedFiles(req.files);
   }
 };
 
@@ -387,7 +478,7 @@ export const deleteProduct = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Unable to delete product",
     });
   }
 };

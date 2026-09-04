@@ -3,6 +3,13 @@ import User from "../models/User.js";
 import Product from "../models/Product.js";
 import { getSizeQuantity, isSizeAvailable } from "../utils/productStock.js";
 
+const MAX_ADD_QUANTITY = 10;
+const isSafePathSegment = (value) =>
+  typeof value === "string" &&
+  Boolean(value.trim()) &&
+  !value.includes(".") &&
+  !value.startsWith("$");
+
 const findAvailableProduct = async (itemId) => {
   return Product.findOne({
     _id: itemId,
@@ -26,6 +33,8 @@ const validateProductSize = (product, size) => {
 export const addToCart = async (req, res) => {
   try {
     const { itemId, size } = req.body;
+    const quantity =
+      req.body.quantity === undefined ? 1 : Number(req.body.quantity);
     const { userId } = req.auth();
 
     if (!isObjectIdOrHexString(itemId)) {
@@ -35,10 +44,21 @@ export const addToCart = async (req, res) => {
       });
     }
 
-    if (typeof size !== "string" || !size.trim()) {
+    if (!isSafePathSegment(size)) {
       return res.status(400).json({
         success: false,
         message: "Please select a product size",
+      });
+    }
+
+    if (
+      !Number.isInteger(quantity) ||
+      quantity < 1 ||
+      quantity > MAX_ADD_QUANTITY
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: `Quantity must be between 1 and ${MAX_ADD_QUANTITY}`,
       });
     }
 
@@ -70,26 +90,41 @@ export const addToCart = async (req, res) => {
       });
     }
 
-    const cartData = userData.cartData || {};
-    const currentQuantity = Number(cartData[itemId]?.[size] ?? 0);
-    const nextQuantity = currentQuantity + 1;
     const stockQuantity = getSizeQuantity(product, size);
 
-    if (nextQuantity > stockQuantity) {
+    if (quantity > stockQuantity) {
       return res.status(400).json({
         success: false,
         message: `Only ${stockQuantity} items are available for size ${size}`,
       });
     }
 
-    cartData[itemId] = cartData[itemId] || {};
-    cartData[itemId][size] = nextQuantity;
+    const cartItemPath = `cartData.${itemId}.${size}`;
+    const updatedUser = await User.findOneAndUpdate(
+      {
+        _id: userId,
+        $or: [
+          { [cartItemPath]: { $exists: false } },
+          { [cartItemPath]: { $lte: stockQuantity - quantity } },
+        ],
+      },
+      { $inc: { [cartItemPath]: quantity } },
+      { new: true },
+    );
 
-    await User.findByIdAndUpdate(userId, { cartData });
+    if (!updatedUser) {
+      return res.status(400).json({
+        success: false,
+        message: `Only ${stockQuantity} items are available for size ${size}`,
+      });
+    }
+
+    const nextQuantity = Number(updatedUser.cartData?.[itemId]?.[size] ?? 0);
 
     return res.json({
       success: true,
       message: "Added to Cart",
+      addedQuantity: quantity,
       quantity: nextQuantity,
     });
   } catch (error) {
@@ -97,7 +132,7 @@ export const addToCart = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Unable to add item to cart",
     });
   }
 };
@@ -116,7 +151,7 @@ export const updateCart = async (req, res) => {
       });
     }
 
-    if (typeof size !== "string" || !size.trim()) {
+    if (!isSafePathSegment(size)) {
       return res.status(400).json({
         success: false,
         message: "Please select a product size",
@@ -139,19 +174,14 @@ export const updateCart = async (req, res) => {
       });
     }
 
-    const cartData = userData.cartData || {};
+    const cartItemPath = `cartData.${itemId}.${size}`;
 
     // Removing an item must remain possible even if the product is no longer sold.
     if (quantity === 0) {
-      if (cartData[itemId]?.[size] !== undefined) {
-        delete cartData[itemId][size];
-
-        if (Object.keys(cartData[itemId]).length === 0) {
-          delete cartData[itemId];
-        }
-
-        await User.findByIdAndUpdate(userId, { cartData });
-      }
+      await User.updateOne(
+        { _id: userId },
+        { $unset: { [cartItemPath]: "" } },
+      );
 
       return res.json({
         success: true,
@@ -187,10 +217,10 @@ export const updateCart = async (req, res) => {
       });
     }
 
-    cartData[itemId] = cartData[itemId] || {};
-    cartData[itemId][size] = quantity;
-
-    await User.findByIdAndUpdate(userId, { cartData });
+    await User.updateOne(
+      { _id: userId },
+      { $set: { [cartItemPath]: quantity } },
+    );
 
     return res.json({
       success: true,
@@ -202,7 +232,7 @@ export const updateCart = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Unable to update cart",
     });
   }
 };

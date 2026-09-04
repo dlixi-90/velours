@@ -1,3 +1,20 @@
 import multer from "multer";
 
-export const upload = multer({storage: multer.diskStorage({})})
+const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+export const upload = multer({
+  storage: multer.diskStorage({}),
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+    files: 4,
+  },
+  fileFilter: (_req, file, callback) => {
+    if (!allowedImageTypes.has(file.mimetype)) {
+      return callback(
+        new multer.MulterError("LIMIT_UNEXPECTED_FILE", file.fieldname),
+      );
+    }
+
+    return callback(null, true);
+  },
+});

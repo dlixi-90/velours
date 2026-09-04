@@ -11,6 +11,17 @@ const addressFields = [
   "zipcode",
   "country",
 ];
+const addressFieldLimits = {
+  firstName: 80,
+  lastName: 80,
+  email: 254,
+  phone: 30,
+  street: 200,
+  city: 100,
+  state: 100,
+  zipcode: 20,
+  country: 100,
+};
 
 // Add Address [POST '/add']
 export const addAddress = async (req, res) => {
@@ -30,7 +41,21 @@ export const addAddress = async (req, res) => {
         });
       }
 
+      if (value.length > addressFieldLimits[field]) {
+        return res.status(400).json({
+          success: false,
+          message: `${field} is too long`,
+        });
+      }
+
       normalizedAddress[field] = value;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedAddress.email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email address",
+      });
     }
 
     const createdAddress = await Address.create({
@@ -48,7 +73,7 @@ export const addAddress = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Unable to save address",
     });
   }
 };
@@ -73,7 +98,7 @@ export const getAddress = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Unable to load addresses",
     });
   }
 };

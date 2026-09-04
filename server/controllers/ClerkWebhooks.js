@@ -12,11 +12,15 @@ const clerkWebhooks = async (req, res)=>{
             "svix-signature": req.headers["svix-signature"],
         }
 
-        // Verifyting headers
-        await whook.verify(JSON.stringify(req.body), headers)
+        const payload = Buffer.isBuffer(req.body)
+            ? req.body.toString("utf8")
+            : JSON.stringify(req.body)
+
+        // Verify the exact raw payload before trusting any event fields.
+        const event = whook.verify(payload, headers)
 
         // Getting Data from request body
-        const {data, type} = req.body
+        const {data, type} = event
 
         // Switch Cases for diferent Events
         switch (type) {
@@ -49,11 +53,14 @@ const clerkWebhooks = async (req, res)=>{
                 break;
         }
 
-        res.json({success:true, message: "Webhook Received"})
+        return res.json({success:true, message: "Webhook Received"})
 
     } catch (error) {
         console.log(error.message)
-        res.json({success:false, message: error.message})
+        return res.status(400).json({
+            success:false,
+            message: "Invalid Clerk webhook",
+        })
     }
 }
 
