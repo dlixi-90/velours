@@ -3,14 +3,30 @@ import toast from "react-hot-toast";
 import { useAppContext } from "../context/AppContext";
 import { removePurchasedItems } from "../utils/cartSelection";
 
-const QrPaymentStatus = ({ initialOrder, onExpired }) => {
+const getRemainingSeconds = (expiresAt) =>
+  Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000));
+
+const formatRemainingTime = (seconds) => {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+
+  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+};
+
+const QrPaymentStatus = ({ initialOrder, onExpired, onCancelled }) => {
   const { axios, getToken, navigate, setCartItems, fetchProducts } =
     useAppContext();
 
   const [order, setOrder] = useState(initialOrder);
   const [isChecking, setIsChecking] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [hasShownSuccess, setHasShownSuccess] = useState(false);
+  const [remainingSeconds, setRemainingSeconds] = useState(() =>
+    getRemainingSeconds(initialOrder.paymentExpiresAt),
+  );
   const hasSyncedCartRef = useRef(false);
+  const cancelRequestRef = useRef(false);
+  const qrHistoryEntryRef = useRef(false);
 
   const checkPayment = useCallback(
     async (showError = false) => {
@@ -100,6 +116,25 @@ const QrPaymentStatus = ({ initialOrder, onExpired }) => {
     };
   }, [checkPayment, order.isPaid, order.status]);
 
+  useEffect(() => {
+    if (order.status !== "Awaiting Payment" || order.isPaid) return undefined;
+
+    const intervalId = window.setInterval(() => {
+      const nextRemainingSeconds = getRemainingSeconds(
+        order.paymentExpiresAt,
+      );
+
+      setRemainingSeconds(nextRemainingSeconds);
+
+      if (nextRemainingSeconds === 0) {
+        window.clearInterval(intervalId);
+        checkPayment(false);
+      }
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [checkPayment, order.isPaid, order.paymentExpiresAt, order.status]);
+
   const copyPaymentCode = async () => {
     try {
       await navigator.clipboard.writeText(order.paymentCode);
@@ -108,6 +143,80 @@ const QrPaymentStatus = ({ initialOrder, onExpired }) => {
       toast.error("Could not copy payment code");
     }
   };
+
+  const cancelPayment = useCallback(async (fromBrowserBack = false) => {
+    if (cancelRequestRef.current) return;
+
+    try {
+      cancelRequestRef.current = true;
+      setIsCancelling(true);
+      const { data } = await axios.post(
+        `/api/orders/${initialOrder._id}/cancel`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${await getToken()}`,
+          },
+        },
+      );
+
+      if (!data.success) {
+        throw new Error(data.message || "Could not cancel QR payment");
+      }
+
+      await fetchProducts();
+      window.history.replaceState(
+        { ...window.history.state, qrPayment: null, cartStep: 2 },
+        "",
+        window.location.href,
+      );
+      onCancelled();
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          "Could not cancel QR payment",
+      );
+      await checkPayment(false);
+
+      if (fromBrowserBack && qrHistoryEntryRef.current) {
+        window.history.pushState(
+          { ...window.history.state, qrPayment: initialOrder._id },
+          "",
+          window.location.href,
+        );
+      }
+    } finally {
+      cancelRequestRef.current = false;
+      setIsCancelling(false);
+    }
+  }, [
+    axios,
+    checkPayment,
+    fetchProducts,
+    getToken,
+    initialOrder._id,
+    onCancelled,
+  ]);
+
+  useEffect(() => {
+    if (!qrHistoryEntryRef.current) {
+      window.history.pushState(
+        { ...window.history.state, qrPayment: initialOrder._id },
+        "",
+        window.location.href,
+      );
+      qrHistoryEntryRef.current = true;
+    }
+
+    const handleBrowserBack = () => {
+      cancelPayment(true);
+    };
+
+    window.addEventListener("popstate", handleBrowserBack);
+
+    return () => window.removeEventListener("popstate", handleBrowserBack);
+  }, [cancelPayment, initialOrder._id, onCancelled]);
 
   if (order.status === "Payment Review") {
     return (
@@ -230,7 +339,8 @@ const QrPaymentStatus = ({ initialOrder, onExpired }) => {
               <p className="font-medium">Awaiting payment</p>
 
               <p className="text-sm text-gray-500">
-                Status is checked automatically every 4 seconds.
+                QR expires in {formatRemainingTime(remainingSeconds)}. Status is
+                checked automatically.
               </p>
             </div>
           </div>
@@ -238,10 +348,19 @@ const QrPaymentStatus = ({ initialOrder, onExpired }) => {
           <button
             type="button"
             onClick={() => checkPayment(true)}
-            disabled={isChecking}
+            disabled={isChecking || isCancelling}
             className="btn-dark mt-5 w-full !rounded-md disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isChecking ? "Checking..." : "I Have Paid"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => cancelPayment(false)}
+            disabled={isChecking || isCancelling}
+            className="btn-outline mt-3 w-full !rounded-md disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isCancelling ? "Cancelling..." : "Back to payment method"}
           </button>
         </div>
       </div>

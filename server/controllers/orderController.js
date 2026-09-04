@@ -10,13 +10,23 @@ import { getOrderTotal } from "../utils/orderPricing.js";
 
 // Global variables for payment
 const orderStatuses = ["Order Placed", "Packing", "Shipping", "Delivery"];
-const parsedQrReservationMinutes = Number(
-  process.env.QR_RESERVATION_MINUTES || 15,
-);
-const qrReservationMinutes =
-  Number.isFinite(parsedQrReservationMinutes) && parsedQrReservationMinutes > 0
-    ? parsedQrReservationMinutes
-    : 15;
+const QR_RESERVATION_MINUTES = 5;
+const QR_RESERVATION_MS = QR_RESERVATION_MINUTES * 60 * 1000;
+
+const getQrExpirationDate = (order) => {
+  const savedExpiration = new Date(order.paymentExpiresAt).getTime();
+  const maximumExpiration =
+    new Date(order.createdAt).getTime() + QR_RESERVATION_MS;
+
+  return new Date(Math.min(savedExpiration, maximumExpiration));
+};
+
+const getQrExpirationFilter = () => ({
+  $or: [
+    { paymentExpiresAt: { $lte: new Date() } },
+    { createdAt: { $lte: new Date(Date.now() - QR_RESERVATION_MS) } },
+  ],
+});
 
 class OrderRequestError extends Error {
   constructor(message, statusCode = 400) {
@@ -330,7 +340,7 @@ const expireQrOrder = async (orderId) => {
     paymentMethod: "QR",
     isPaid: false,
     status: "Awaiting Payment",
-    paymentExpiresAt: { $lte: new Date() },
+    ...getQrExpirationFilter(),
   };
   const isExpired = await Order.exists(expirationFilter);
 
@@ -354,7 +364,7 @@ const releaseExpiredQrReservations = async () => {
     paymentMethod: "QR",
     isPaid: false,
     status: "Awaiting Payment",
-    paymentExpiresAt: { $lte: new Date() },
+    ...getQrExpirationFilter(),
   };
   const hasExpiredOrder = await Order.exists(expirationFilter);
 
@@ -487,6 +497,12 @@ const createQrUrl = ({ paymentCode, qrAmount }) => {
   return `https://vietqr.app/img?${params.toString()}`;
 };
 
+const serializeQrOrder = (order) => ({
+  ...order.toObject(),
+  paymentExpiresAt: getQrExpirationDate(order),
+  qrUrl: createQrUrl(order),
+});
+
 // Place order using Qr [POST '/qr']
 export const placeOrderQr = async (req, res) => {
   try {
@@ -500,22 +516,20 @@ export const placeOrderQr = async (req, res) => {
       isPaid: false,
       status: "Awaiting Payment",
       paymentExpiresAt: { $gt: new Date() },
+      createdAt: { $gt: new Date(Date.now() - QR_RESERVATION_MS) },
     }).sort({ createdAt: -1 });
 
     if (pendingOrder) {
       return res.json({
         success: true,
         message: "Pending QR payment restored",
-        order: {
-          ...pendingOrder.toObject(),
-          qrUrl: createQrUrl(pendingOrder),
-        },
+        order: serializeQrOrder(pendingOrder),
       });
     }
 
     const paymentCode = createPaymentCode();
     const paymentExpiresAt = new Date(
-      Date.now() + qrReservationMinutes * 60 * 1000,
+      Date.now() + QR_RESERVATION_MS,
     );
 
     const order = await runInTransaction(async (session) => {
@@ -600,9 +614,17 @@ export const getOrderStatus = async (req, res) => {
       });
     }
 
+    const serializedOrder =
+      order.paymentMethod === "QR" && order.status === "Awaiting Payment"
+        ? {
+            ...order.toObject(),
+            paymentExpiresAt: getQrExpirationDate(order),
+          }
+        : order;
+
     return res.json({
       success: true,
-      order,
+      order: serializedOrder,
     });
   } catch (error) {
     return res.status(500).json({
@@ -623,16 +645,71 @@ export const getPendingQrOrder = async (req, res) => {
       isPaid: false,
       status: "Awaiting Payment",
       paymentExpiresAt: { $gt: new Date() },
+      createdAt: { $gt: new Date(Date.now() - QR_RESERVATION_MS) },
     }).sort({ createdAt: -1 });
 
     return res.json({
       success: true,
       order: order
-        ? {
-            ...order.toObject(),
-            qrUrl: createQrUrl(order),
-          }
+        ? serializeQrOrder(order)
         : null,
+    });
+  } catch (error) {
+    return sendOrderError(res, error);
+  }
+};
+
+export const cancelQrOrder = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+    const { orderId } = req.params;
+
+    if (!isObjectIdOrHexString(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order ID",
+      });
+    }
+
+    const result = await runInTransaction(async (session) => {
+      const order = await Order.findOne({
+        _id: orderId,
+        userId,
+      }).session(session);
+
+      if (!order) {
+        throw new OrderRequestError("Order not found", 404);
+      }
+
+      if (
+        order.paymentMethod !== "QR" ||
+        order.isPaid ||
+        order.status !== "Awaiting Payment"
+      ) {
+        return { cancelled: false, status: order.status };
+      }
+
+      await restoreOrderStock(order, session);
+      order.status = "Payment Cancelled";
+      order.paymentExpiresAt = new Date();
+      await order.save({ session });
+
+      return { cancelled: true, status: order.status };
+    });
+
+    if (!result.cancelled) {
+      return res.status(409).json({
+        success: false,
+        message:
+          result.status === "Order Placed"
+            ? "Payment has already been confirmed"
+            : "QR payment can no longer be cancelled",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "QR payment cancelled",
     });
   } catch (error) {
     return sendOrderError(res, error);

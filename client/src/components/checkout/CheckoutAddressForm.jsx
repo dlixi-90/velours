@@ -9,18 +9,6 @@ import {
 const COUNTRIES_NOW_API = "https://countriesnow.space/api/v0.1";
 const VIETNAM_PROVINCES_API = "https://provinces.open-api.vn/api/v2/?depth=2";
 
-const initialAddress = {
-  firstName: "",
-  lastName: "",
-  email: "",
-  phone: "",
-  street: "",
-  city: "",
-  state: "",
-  zipcode: "",
-  country: "Vietnam",
-};
-
 const contactFields = [
   {
     name: "firstName",
@@ -80,6 +68,8 @@ const CheckoutAddressForm = ({
   isSubmitting,
   setIsSubmitting,
   selectedItemKeys,
+  address,
+  setAddress,
 }) => {
   const {
     user,
@@ -92,7 +82,6 @@ const CheckoutAddressForm = ({
     fetchProducts,
   } = useAppContext();
 
-  const [address, setAddress] = useState(initialAddress);
   const [countries, setCountries] = useState([]);
   const [cities, setCities] = useState([]);
   const [vietnamProvinces, setVietnamProvinces] = useState([]);
@@ -131,14 +120,13 @@ const CheckoutAddressForm = ({
     if (!user) return;
 
     // Clerk may finish loading after this form mounts, so sync empty fields once.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAddress((current) => ({
       ...current,
       firstName: current.firstName || user.firstName || "",
       lastName: current.lastName || user.lastName || "",
       email: current.email || user.primaryEmailAddress?.emailAddress || "",
     }));
-  }, [user]);
+  }, [setAddress, user]);
 
   useEffect(() => {
     const controller = new AbortController();

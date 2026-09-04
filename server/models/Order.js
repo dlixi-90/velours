@@ -20,6 +20,7 @@ const orderSchema = new mongoose.Schema(
       enum: [
         "Awaiting Payment",
         "Payment Expired",
+        "Payment Cancelled",
         "Payment Review",
         "Order Placed",
         "Packing",

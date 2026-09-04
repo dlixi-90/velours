@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { Check } from "lucide-react";
 import Title from "../components/Title";
@@ -10,6 +10,7 @@ import { useAppContext } from "../context/AppContext";
 import { assets } from "../assets/data";
 import { formatThousandsVnd } from "../utils/money";
 import { getCartItemKey } from "../utils/cartSelection";
+import { initialCheckoutAddress } from "../utils/checkoutAddress";
 
 const CartCheckbox = ({
   checked,
@@ -63,6 +64,9 @@ const Cart = () => {
   const [highestStep, setHighestStep] = useState(1);
   const [createdOrder, setCreatedOrder] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [checkoutAddress, setCheckoutAddress] = useState(
+    initialCheckoutAddress,
+  );
   const [deselectedItemKeys, setDeselectedItemKeys] = useState(
     () => new Set(),
   );
@@ -200,6 +204,13 @@ const Cart = () => {
     setHighestStep(1);
     window.scrollTo(0, 0);
   };
+
+  const handleQrCancelled = useCallback(() => {
+    setCreatedOrder(null);
+    setCurrentStep(2);
+    setHighestStep(2);
+    window.scrollTo(0, 0);
+  }, []);
 
   const handleStepChange = (step) => {
     if (createdOrder) return;
@@ -387,6 +398,8 @@ const Cart = () => {
             isSubmitting={isSubmitting}
             setIsSubmitting={setIsSubmitting}
             selectedItemKeys={selectedItemKeys}
+            address={checkoutAddress}
+            setAddress={setCheckoutAddress}
           />
 
           {/* CartTotal vẫn bên phải */}
@@ -411,6 +424,7 @@ const Cart = () => {
         <QrPaymentStatus
           initialOrder={createdOrder}
           onExpired={handleQrExpired}
+          onCancelled={handleQrCancelled}
         />
       )}
 

@@ -1,10 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import Order from "../../models/Order.js";
+import Product from "../../models/Product.js";
 import User from "../../models/User.js";
+import mongoose from "mongoose";
 import authUser, { requireOwner } from "../../middleware/authMiddleware.js";
 import {
   sepayWebhook,
+  cancelQrOrder,
   updateStatus,
 } from "../../controllers/orderController.js";
 import { createProduct } from "../../controllers/productController.js";
@@ -189,6 +192,73 @@ test("SePay webhook rejects a non-numeric amount before querying orders", async 
     } else {
       process.env.SEPAY_WEBHOOK_API_KEY = previousKey;
     }
+  }
+});
+
+test("cancelling an awaiting QR order restores stock", async () => {
+  const originalStartSession = mongoose.startSession;
+  const originalOrderFindOne = Order.findOne;
+  const originalProductFind = Product.find;
+  const productId = "507f1f77bcf86cd799439012";
+  let orderFilter;
+  let orderSaved = false;
+  let productSaved = false;
+  const order = {
+    paymentMethod: "QR",
+    isPaid: false,
+    status: "Awaiting Payment",
+    paymentExpiresAt: new Date(Date.now() + 60_000),
+    items: [{ product: productId, size: "M", quantity: 2 }],
+    async save() {
+      orderSaved = true;
+    },
+  };
+  const product = {
+    _id: productId,
+    sizes: ["M"],
+    stockBySize: { M: 3 },
+    inStockBySize: { M: true },
+    inStock: true,
+    isDeleted: false,
+    markModified() {},
+    async save() {
+      productSaved = true;
+    },
+  };
+
+  mongoose.startSession = async () => ({
+    async withTransaction(operation) {
+      await operation();
+    },
+    async endSession() {},
+  });
+  Order.findOne = (filter) => {
+    orderFilter = filter;
+    return { session: async () => order };
+  };
+  Product.find = () => ({ session: async () => [product] });
+
+  try {
+    const { state, response } = createResponse();
+
+    await cancelQrOrder(
+      {
+        auth: () => ({ userId: "user_test" }),
+        params: { orderId: ORDER_ID },
+      },
+      response,
+    );
+
+    assert.equal(state.payload.success, true);
+    assert.equal(orderFilter.userId, "user_test");
+    assert.equal(order.status, "Payment Cancelled");
+    assert.equal(product.stockBySize.M, 5);
+    assert.equal(orderSaved, true);
+    assert.equal(productSaved, true);
+  } finally {
+    mongoose.startSession = originalStartSession;
+    Order.findOne = originalOrderFindOne;
+    Product.find = originalProductFind;
   }
 });
 
