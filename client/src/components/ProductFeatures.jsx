@@ -1,4 +1,3 @@
-import React from "react";
 import { assets } from "../assets/data";
 
 const ProductFeatures = () => {
@@ -15,7 +14,7 @@ const ProductFeatures = () => {
             />
           </div>
           <div>
-            <h4 className="h4 capitalize">Easy Return</h4>
+            <h5 className="h4 capitalize mb-2">Easy Return</h5>
             <p>
               Lorem ipsum dolor sit amet consectetur adipisicing elit.
               Voluptatem eaque corrupti asperiores animi, praesentium
@@ -34,7 +33,7 @@ const ProductFeatures = () => {
             />
           </div>
           <div>
-            <h4 className="h4 capitalize">secure payment</h4>
+            <h5 className="h4 capitalize mb-2">secure payment</h5>
             <p>
               Lorem ipsum dolor sit amet consectetur adipisicing elit.
               Voluptatem eaque corrupti asperiores animi, praesentium
@@ -48,7 +47,7 @@ const ProductFeatures = () => {
             <img src={assets.delivery} alt="" width={77} className="mb-3" />
           </div>
           <div>
-            <h4 className="h4 capitalize">Fast Delivery</h4>
+            <h5 className="h4 capitalize mb-2">Fast Delivery</h5>
             <p>
               Lorem ipsum dolor sit amet consectetur adipisicing elit.
               Voluptatem eaque corrupti asperiores animi, praesentium

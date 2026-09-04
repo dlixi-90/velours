@@ -1,12 +1,48 @@
 import { useAuth, useUser } from "@clerk/react";
-import React, { createContext, useContext, useEffect, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import axios from "axios";
+import {
+  getSizeQuantity,
+  isSizeAvailable,
+} from "../utils/productStock";
 
 axios.defaults.baseURL = import.meta.env.VITE_BACKEND_URL;
 
 const AppContext = createContext();
+const MAX_CART_ADD_QUANTITY = 10;
+
+const setCartItemQuantity = (cartData, itemId, size, quantity) => {
+  const nextCartData = structuredClone(cartData);
+
+  if (quantity <= 0) {
+    if (!nextCartData[itemId]) return nextCartData;
+
+    delete nextCartData[itemId][size];
+
+    if (Object.keys(nextCartData[itemId]).length === 0) {
+      delete nextCartData[itemId];
+    }
+
+    return nextCartData;
+  }
+
+  nextCartData[itemId] = nextCartData[itemId] || {};
+  nextCartData[itemId][size] = quantity;
+
+  return nextCartData;
+};
+
+const getRequestErrorMessage = (error, fallbackMessage) => {
+  return error.response?.data?.message || error.message || fallbackMessage;
+};
 
 export const AppContextProvider = ({ children }) => {
   const [products, setProducts] = useState([]);
@@ -23,7 +59,7 @@ export const AppContextProvider = ({ children }) => {
   const { getToken } = useAuth();
 
   // Get the user Profile
-  const getUser = async () => {
+  const getUser = useCallback(async () => {
     try {
       const { data } = await axios.get("/api/users", {
         headers: {
@@ -42,10 +78,10 @@ export const AppContextProvider = ({ children }) => {
       setIsOwner(false);
       toast.error(error.message);
     }
-  };
+  }, [getToken]);
 
   // Fetch all products
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     try {
       const { data } = await axios.get("/api/products");
       if (data.success) {
@@ -56,34 +92,117 @@ export const AppContextProvider = ({ children }) => {
     } catch (error) {
       toast.error(error.message);
     }
+  }, []);
+
+  // Replace only the product returned by an update API.
+  // This avoids fetching the complete catalog after every stock toggle.
+  const replaceProduct = (updatedProduct) => {
+    setProducts((currentProducts) =>
+      currentProducts.map((product) =>
+        product._id === updatedProduct._id ? updatedProduct : product,
+      ),
+    );
   };
 
   // Add Product to the cart
-  const addToCart = async (itemId, size) => {
-    if (!size) return toast.error("Please select a size first");
-    let cartData = structuredClone(cartItems);
-    cartData[itemId] = cartData[itemId] || {};
-    cartData[itemId][size] = (cartData[itemId][size] || 0) + 1;
-    setCartItems(cartData);
+  const addToCart = async (itemId, size, quantity = 1) => {
+    const addedQuantity = Number(quantity);
 
-    if (user) {
-      try {
-        const { data } = await axios.post(
-          "/api/cart/add",
-          { itemId, size },
-          {
-            headers: { Authorization: `Bearer ${await getToken()}` },
-          },
-        );
+    if (!size) {
+      const message = "Please select a size first";
+      toast.error(message);
+      return { success: false, message };
+    }
 
-        if (data.success) {
-          toast.success(data.message);
-        } else {
-          toast.error(data.message);
-        }
-      } catch (error) {
-        toast.error(error.message);
+    if (
+      !Number.isInteger(addedQuantity) ||
+      addedQuantity < 1 ||
+      addedQuantity > MAX_CART_ADD_QUANTITY
+    ) {
+      const message = `Quantity must be between 1 and ${MAX_CART_ADD_QUANTITY}`;
+      toast.error(message);
+      return { success: false, message };
+    }
+
+    const product = products.find((item) => item._id === itemId);
+
+    if (!product || !product.sizes?.includes(size)) {
+      const message = "Product or size not found";
+      toast.error(message);
+      return { success: false, message };
+    }
+
+    if (!isSizeAvailable(product, size)) {
+      const message = "This product size is out of stock";
+      toast.error(message);
+      return { success: false, message };
+    }
+
+    const currentQuantity = Number(cartItems[itemId]?.[size] ?? 0);
+    const nextQuantity = currentQuantity + addedQuantity;
+    const stockQuantity = getSizeQuantity(product, size);
+
+    if (nextQuantity > stockQuantity) {
+      const message = `Only ${stockQuantity} items are available for size ${size}`;
+      toast.error(message);
+      return { success: false, message };
+    }
+
+    setCartItems((currentCart) =>
+      setCartItemQuantity(currentCart, itemId, size, nextQuantity),
+    );
+
+    if (!user) {
+      return { success: true, quantity: nextQuantity };
+    }
+
+    try {
+      const { data } = await axios.post(
+        "/api/cart/add",
+        { itemId, size, quantity: addedQuantity },
+        {
+          headers: { Authorization: `Bearer ${await getToken()}` },
+        },
+      );
+
+      if (!data.success) {
+        throw new Error(data.message || "Unable to add item to cart");
       }
+
+      setCartItems((currentCart) =>
+        setCartItemQuantity(
+          currentCart,
+          itemId,
+          size,
+          Number(data.quantity ?? nextQuantity),
+        ),
+      );
+
+      toast.success(data.message);
+      return {
+        success: true,
+        quantity: Number(data.quantity ?? nextQuantity),
+      };
+    } catch (error) {
+      setCartItems((currentCart) => {
+        if (currentCart[itemId]?.[size] !== nextQuantity) {
+          return currentCart;
+        }
+
+        return setCartItemQuantity(
+          currentCart,
+          itemId,
+          size,
+          currentQuantity,
+        );
+      });
+
+      const message = getRequestErrorMessage(
+        error,
+        "Unable to add item to cart",
+      );
+      toast.error(message);
+      return { success: false, message };
     }
   };
 
@@ -100,28 +219,92 @@ export const AppContextProvider = ({ children }) => {
 
   // Update Cart Quantity
   const updateQuantity = async (itemId, size, quantity) => {
-    let cartData = structuredClone(cartItems);
-    cartData[itemId][size] = quantity;
-    setCartItems(cartData);
+    const nextQuantity = Number(quantity);
 
-    if (user) {
-      try {
-        const { data } = await axios.post(
-          "/api/cart/update",
-          { itemId, size, quantity },
-          {
-            headers: { Authorization: `Bearer ${await getToken()}` },
-          },
-        );
+    if (!Number.isInteger(nextQuantity) || nextQuantity < 0) {
+      const message = "Quantity must be a non-negative integer";
+      toast.error(message);
+      return { success: false, message };
+    }
 
-        if (data.success) {
-          toast.success(data.message);
-        } else {
-          toast.error(data.message);
-        }
-      } catch (error) {
-        toast.error(error.message);
+    const currentQuantity = Number(cartItems[itemId]?.[size] ?? 0);
+
+    if (nextQuantity > 0) {
+      const product = products.find((item) => item._id === itemId);
+
+      if (!product || !product.sizes?.includes(size)) {
+        const message = "Product or size not found";
+        toast.error(message);
+        return { success: false, message };
       }
+
+      if (!isSizeAvailable(product, size)) {
+        const message = "This product size is out of stock";
+        toast.error(message);
+        return { success: false, message };
+      }
+
+      const stockQuantity = getSizeQuantity(product, size);
+
+      if (nextQuantity > stockQuantity) {
+        const message = `Only ${stockQuantity} items are available for size ${size}`;
+        toast.error(message);
+        return { success: false, message };
+      }
+    }
+
+    setCartItems((currentCart) =>
+      setCartItemQuantity(currentCart, itemId, size, nextQuantity),
+    );
+
+    if (!user) {
+      return { success: true, quantity: nextQuantity };
+    }
+
+    try {
+      const { data } = await axios.post(
+        "/api/cart/update",
+        { itemId, size, quantity: nextQuantity },
+        {
+          headers: { Authorization: `Bearer ${await getToken()}` },
+        },
+      );
+
+      if (!data.success) {
+        throw new Error(data.message || "Unable to update cart");
+      }
+
+      setCartItems((currentCart) =>
+        setCartItemQuantity(
+          currentCart,
+          itemId,
+          size,
+          Number(data.quantity ?? nextQuantity),
+        ),
+      );
+      return {
+        success: true,
+        quantity: Number(data.quantity ?? nextQuantity),
+      };
+    } catch (error) {
+      setCartItems((currentCart) => {
+        const savedQuantity = Number(currentCart[itemId]?.[size] ?? 0);
+
+        if (savedQuantity !== nextQuantity) {
+          return currentCart;
+        }
+
+        return setCartItemQuantity(
+          currentCart,
+          itemId,
+          size,
+          currentQuantity,
+        );
+      });
+
+      const message = getRequestErrorMessage(error, "Unable to update cart");
+      toast.error(message);
+      return { success: false, message };
     }
   };
 
@@ -142,22 +325,30 @@ export const AppContextProvider = ({ children }) => {
     if (!isLoaded) return;
 
     if (!user) {
-      setIsOwner(false);
-      return;
+      queueMicrotask(() => {
+        setIsOwner(false);
+        setCartItems({});
+      });
+      return undefined;
     }
 
-    getUser();
-  }, [isLoaded, user]);
+    const timeoutId = window.setTimeout(getUser, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [getUser, isLoaded, user]);
 
   useEffect(() => {
-    fetchProducts();
-  }, []);
+    const timeoutId = window.setTimeout(fetchProducts, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [fetchProducts]);
 
   const value = {
     navigate,
     user,
     products,
     fetchProducts,
+    replaceProduct,
     currency,
     searchQuery,
     setSearchQuery,
@@ -179,4 +370,6 @@ export const AppContextProvider = ({ children }) => {
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };
 
+// This colocated hook keeps the existing public context API stable.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAppContext = () => useContext(AppContext);

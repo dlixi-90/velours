@@ -1,112 +1,93 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Item from "../components/Item";
 import { useAppContext } from "../context/AppContext";
 import SearchInput from "../components/SearchInput";
 import { SearchX } from "lucide-react";
+import {
+  getAvailableSizes,
+  hasAnyAvailableSize,
+} from "../utils/productStock";
+
+const allCategories = ["Hair Care", "Body Care", "Face Care"];
+
+const getDisplayedPrice = (product) => {
+  const firstAvailableSize = getAvailableSizes(product)[0];
+  const price = Number(product.price?.[firstAvailableSize]);
+
+  return Number.isFinite(price) ? price : Number.POSITIVE_INFINITY;
+};
 
 const Collection = () => {
   const { products, searchQuery } = useAppContext();
   const [category, setCategory] = useState([]);
   const [type, setType] = useState([]);
   const [selectedSort, setSelectedSort] = useState("relevant");
-  const [filteredProducts, setFilteredProducts] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
-  const [availableTypes, setavailableTypes] = useState([]);
   const itemsPerPage = 8;
 
-  // Predefined Categories
-  const allCategories = useMemo(
-    () => ["Hair Care", "Body Care", "Face Care"],
-    [],
-  );
-
-  // Reusable Function to toggle filter values
   const toggleFilter = (value, setState) => {
     setState((prev) =>
       prev.includes(value)
         ? prev.filter((item) => item !== value)
         : [...prev, value],
     );
+    setCurrentPage(1);
   };
 
-  // Dynamically update types based on selected categories
-  useEffect(() => {
+  const availableTypes = useMemo(() => {
     const selectedCats = category.length > 0 ? category : allCategories;
     const filteredProds = products.filter((p) =>
       selectedCats.includes(p.category),
     );
-    const typesSet = new Set(filteredProds.map((p) => p.type));
-    const newAvailableTypes = [...typesSet].sort();
-    setavailableTypes(newAvailableTypes);
-    // Remove unavailable types from selection
-    setType((prev) => prev.filter((t) => typesSet.has(t)));
-  }, [category, products, allCategories]);
+    return [...new Set(filteredProds.map((p) => p.type))].sort();
+  }, [category, products]);
 
-  // Apply filter like search, category, type and inStock
-  const applyFilters = () => {
-    let filtered = [...products];
-    // Product that are inStock
-    filtered = filtered.filter((p) => p.inStock);
+  const filteredProducts = useMemo(() => {
+    const availableTypeSet = new Set(availableTypes);
+    const activeTypes = type.filter((item) => availableTypeSet.has(item));
+    let filtered = products.filter(hasAnyAvailableSize);
 
     if (searchQuery) {
+      const normalizedSearch = searchQuery.toLowerCase();
       filtered = filtered.filter((product) =>
-        product.title.toLowerCase().includes(searchQuery.toLowerCase()),
+        product.title.toLowerCase().includes(normalizedSearch),
       );
     }
 
-    if (category.length) {
+    if (category.length > 0) {
       filtered = filtered.filter((product) =>
         category.includes(product.category),
       );
     }
 
-    if (type.length) {
-      filtered = filtered.filter((product) => type.includes(product.type));
+    if (activeTypes.length > 0) {
+      filtered = filtered.filter((product) =>
+        activeTypes.includes(product.type),
+      );
+    }
+
+    if (selectedSort === "low") {
+      return [...filtered].sort(
+        (a, b) => getDisplayedPrice(a) - getDisplayedPrice(b),
+      );
+    }
+
+    if (selectedSort === "high") {
+      return [...filtered].sort(
+        (a, b) => getDisplayedPrice(b) - getDisplayedPrice(a),
+      );
     }
 
     return filtered;
-  };
-
-  // Sorting Logic based on price or relevance
-  const applySorting = (productsList) => {
-    switch (selectedSort) {
-      case "low":
-        return [...productsList].sort(
-          (a, b) =>
-            Math.min(...Object.values(a.price)) -
-            Math.min(...Object.values(b.price)),
-        );
-        break;
-      case "high":
-        return [...productsList].sort(
-          (a, b) =>
-            Math.min(...Object.values(b.price)) -
-            Math.min(...Object.values(a.price)),
-        );
-        break;
-
-      default:
-        return productsList;
-        break;
-    }
-  };
-
-  // Update filtered and sorted products whenever dependencies changes
-  useEffect(() => {
-    let filterd = applyFilters();
-    let sorted = applySorting(filterd);
-    setFilteredProducts(sorted);
-    setCurrentPage(1); // Reset to first page when filters change
-  }, [category, type, selectedSort, products, searchQuery]);
-
-  // Handle Pagination Logic
-  const getPaginatedProducts = () => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    return filteredProducts.slice(startIndex, endIndex);
-  };
+  }, [availableTypes, category, products, searchQuery, selectedSort, type]);
 
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
+  const activePage = Math.min(currentPage, Math.max(totalPages, 1));
+  const startIndex = (activePage - 1) * itemsPerPage;
+  const paginatedProducts = filteredProducts.slice(
+    startIndex,
+    startIndex + itemsPerPage,
+  );
 
   return (
     <div className="max-padd-container !px-0 mt-20">
@@ -117,7 +98,10 @@ const Collection = () => {
           <div className="px-4 py-3 mt-4 bg-white rounded-xl">
             <h5 className="h5 mb-4">Sort By Price</h5>
             <select
-              onChange={(e) => setSelectedSort(e.target.value)}
+              onChange={(e) => {
+                setSelectedSort(e.target.value);
+                setCurrentPage(1);
+              }}
               className="border border-slate-900/10 outline-none text-gray-30 medium-14 h-8 w-full px-2 rounded-md"
             >
               <option value="relevant">Relevant</option>
@@ -163,9 +147,13 @@ const Collection = () => {
         {/* Right Side - Filtered Products */}
         <div className="max-sm:px-10 sm:pr-10 flex-1">
           <div className="grid w-full grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {getPaginatedProducts().length > 0 ? (
-              getPaginatedProducts().map((product) => (
-                <Item product={product} key={product._id} />
+            {paginatedProducts.length > 0 ? (
+              paginatedProducts.map((product) => (
+                <Item
+                  product={product}
+                  key={product._id}
+                  collectionLayout
+                />
               ))
             ) : (
               <div className="col-span-full mx-auto flex min-h-[240px] w-full max-w-xl flex-col items-center justify-center rounded-2xl border border-dashed border-secondary/20 bg-primary/60 px-5 py-8 text-center">
@@ -182,10 +170,10 @@ const Collection = () => {
           {filteredProducts.length > 0 && (
             <div className="flexCenter flex flex-wrap mt-14 mb-10 gap-4">
               <button
-                disabled={currentPage === 1}
+                disabled={activePage === 1}
                 onClick={() => setCurrentPage((prev) => prev - 1)}
                 className={`btn-secondary !py-1 !px-3 ${
-                  currentPage === 1 && "opacity-50 cursor-not-allowed"
+                  activePage === 1 && "opacity-50 cursor-not-allowed"
                 }`}
               >
                 Previous
@@ -195,17 +183,17 @@ const Collection = () => {
                   key={index + 1}
                   onClick={() => setCurrentPage(index + 1)}
                   className={`btn-light !py-1 !px-3 ${
-                    currentPage === index + 1 && "bg-tertiary text-white"
+                    activePage === index + 1 && "bg-tertiary text-white"
                   }`}
                 >
                   {index + 1}
                 </button>
               ))}
               <button
-                disabled={currentPage === totalPages}
+                disabled={activePage === totalPages}
                 onClick={() => setCurrentPage((prev) => prev + 1)}
                 className={`btn-secondary !py-1 !px-3 ${
-                  currentPage === totalPages && "opacity-50 cursor-not-allowed"
+                  activePage === totalPages && "opacity-50 cursor-not-allowed"
                 }`}
               >
                 Next

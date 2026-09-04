@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { useAppContext } from "../context/AppContext";
 
-const QrPaymentStatus = ({ initialOrder }) => {
-  const { axios, getToken, navigate, setCartItems } = useAppContext();
+const QrPaymentStatus = ({ initialOrder, onExpired }) => {
+  const { axios, getToken, navigate, setCartItems, fetchProducts } =
+    useAppContext();
 
   const [order, setOrder] = useState(initialOrder);
   const [isChecking, setIsChecking] = useState(false);
@@ -30,33 +31,57 @@ const QrPaymentStatus = ({ initialOrder }) => {
           ...data.order,
         }));
 
-        if (data.order.isPaid) {
+        if (data.order.status === "Payment Review") {
+          if (!hasShownSuccess) {
+            toast("Payment received and awaiting manual confirmation.");
+            setHasShownSuccess(true);
+          }
+        } else if (data.order.isPaid) {
           setCartItems({});
 
           if (!hasShownSuccess) {
-            toast.success("Payment successful");
+            toast.success("Payment successful!");
             setHasShownSuccess(true);
           }
+        } else if (data.order.status === "Payment Expired") {
+          await fetchProducts();
+
+          if (showError) {
+            toast.error("Payment time expired. Reserved stock was restored.");
+          }
         } else if (showError) {
-          toast("Payment has not been received yet");
+          toast("Payment has not been received yet!");
         }
       } catch (error) {
         if (showError) {
           toast.error(
             error.response?.data?.message ||
               error.message ||
-              "Could not check payment",
+              "Could not check payment.",
           );
         }
       } finally {
         setIsChecking(false);
       }
     },
-    [axios, getToken, initialOrder._id, setCartItems, hasShownSuccess],
+    [
+      axios,
+      fetchProducts,
+      getToken,
+      initialOrder._id,
+      setCartItems,
+      hasShownSuccess,
+    ],
   );
 
   useEffect(() => {
-    if (order.isPaid) return undefined;
+    if (
+      order.isPaid ||
+      order.status === "Payment Expired" ||
+      order.status === "Payment Review"
+    ) {
+      return undefined;
+    }
 
     const intervalId = window.setInterval(() => {
       checkPayment(false);
@@ -65,7 +90,7 @@ const QrPaymentStatus = ({ initialOrder }) => {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [checkPayment, order.isPaid]);
+  }, [checkPayment, order.isPaid, order.status]);
 
   const copyPaymentCode = async () => {
     try {
@@ -75,6 +100,27 @@ const QrPaymentStatus = ({ initialOrder }) => {
       toast.error("Could not copy payment code");
     }
   };
+
+  if (order.status === "Payment Review") {
+    return (
+      <div className="mx-auto max-w-xl rounded-2xl bg-white px-6 py-16 text-center shadow-sm">
+        <h2 className="text-2xl font-semibold">Payment received</h2>
+
+        <p className="mt-3 text-gray-500">
+          Your payment arrived after the stock reservation expired. The order
+          is awaiting manual confirmation.
+        </p>
+
+        <button
+          type="button"
+          onClick={() => navigate("/my-orders")}
+          className="btn-dark mt-8 !rounded-md"
+        >
+          View My Orders
+        </button>
+      </div>
+    );
+  }
 
   if (order.isPaid) {
     return (
@@ -102,6 +148,27 @@ const QrPaymentStatus = ({ initialOrder }) => {
     );
   }
 
+  if (order.status === "Payment Expired") {
+    return (
+      <div className="mx-auto max-w-xl rounded-2xl bg-white px-6 py-16 text-center shadow-sm">
+        <h2 className="text-2xl font-semibold">Payment time expired</h2>
+
+        <p className="mt-3 text-gray-500">
+          The reserved products were returned to stock. Your cart was kept so
+          you can try again.
+        </p>
+
+        <button
+          type="button"
+          onClick={onExpired}
+          className="btn-dark mt-8 !rounded-md"
+        >
+          Return to cart
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow-sm md:p-10">
       <div className="grid gap-8 md:grid-cols-2 md:items-center">
@@ -118,7 +185,7 @@ const QrPaymentStatus = ({ initialOrder }) => {
         </div>
 
         <div>
-          <div className="rounded-xl bg-gray-50 p-5">
+          <div className="rounded-xl  p-5">
             <p className="text-sm text-gray-500">Amount</p>
 
             <p className="mt-1 text-2xl font-bold text-secondary">

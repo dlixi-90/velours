@@ -1,7 +1,69 @@
-import React, { useEffect, useState } from "react";
-import { useAppContext } from "../../context/AppContext";
-import { assets } from "../../assets/data";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Package } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import toast from "react-hot-toast";
+import { useAppContext } from "../../context/AppContext";
+import { formatThousandsVnd } from "../../utils/money";
+
+const ORDER_STATUSES = ["Order Placed", "Packing", "Shipping", "Delivery"];
+
+const buildMonthlyData = (orders) => {
+  const latestOrderTimestamp = orders.reduce((latestTimestamp, order) => {
+    const orderTimestamp = new Date(order.createdAt).getTime();
+
+    return Number.isNaN(orderTimestamp)
+      ? latestTimestamp
+      : Math.max(latestTimestamp, orderTimestamp);
+  }, 0);
+  const anchorDate = latestOrderTimestamp
+    ? new Date(latestOrderTimestamp)
+    : new Date();
+  const months = Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(
+      anchorDate.getFullYear(),
+      anchorDate.getMonth() - 5 + index,
+      1,
+    );
+
+    return {
+      key: `${date.getFullYear()}-${date.getMonth()}`,
+      month: date.toLocaleDateString("en-US", { month: "short" }),
+      total: 0,
+      successful: 0,
+    };
+  });
+  const monthsByKey = new Map(months.map((month) => [month.key, month]));
+
+  orders.forEach((order) => {
+    const createdAt = new Date(order.createdAt);
+
+    if (Number.isNaN(createdAt.getTime())) return;
+
+    const month = monthsByKey.get(
+      `${createdAt.getFullYear()}-${createdAt.getMonth()}`,
+    );
+
+    if (!month) return;
+
+    const amount = Number(order.amount) || 0;
+    month.total += amount;
+
+    if (order.isPaid) {
+      month.successful += amount;
+    }
+  });
+
+  return months;
+};
 
 const Dashboard = () => {
   const { user, currency, axios, getToken } = useAppContext();
@@ -11,33 +73,41 @@ const Dashboard = () => {
     totalRevenue: 0,
   });
 
+  const requestDashboardData = useCallback(async () => {
+    const { data } = await axios.get("/api/orders/", {
+      headers: { Authorization: `Bearer ${await getToken()}` },
+    });
+
+    if (!data.success) {
+      throw new Error(data.message || "Unable to load dashboard data");
+    }
+
+    return data.dashboardData;
+  }, [axios, getToken]);
+
   const getDashboardData = async () => {
     try {
-      const { data } = await axios.get("/api/orders/", {
-        headers: { Authorization: `Bearer ${await getToken()}` },
-      });
-      if (data.success) {
-        setDashboardData(data.dashboardData);
-      } else {
-        toast.error(data.message);
-      }
+      setDashboardData(await requestDashboardData());
     } catch (error) {
       toast.error(error.message);
     }
   };
 
-  const statusHandler = async (e, orderId) => {
+  const statusHandler = async (event, orderId) => {
     try {
       const { data } = await axios.post(
         "/api/orders/status",
-        { orderId, status: e.target.value },
+        { orderId, status: event.target.value },
         {
           headers: { Authorization: `Bearer ${await getToken()}` },
         },
       );
+
       if (data.success) {
         await getDashboardData();
         toast.success(data.message);
+      } else {
+        toast.error(data.message);
       }
     } catch (error) {
       console.log(error);
@@ -46,191 +116,459 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
-    if (user) {
-      getDashboardData();
-    }
-  }, [user]);
+    if (!user) return undefined;
+
+    let isActive = true;
+
+    requestDashboardData()
+      .then((nextDashboardData) => {
+        if (isActive) {
+          setDashboardData(nextDashboardData);
+        }
+      })
+      .catch((error) => {
+        if (isActive) {
+          toast.error(error.message);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [requestDashboardData, user]);
+
+  const orders = useMemo(
+    () => dashboardData.orders || [],
+    [dashboardData.orders],
+  );
+  const monthlyData = useMemo(() => buildMonthlyData(orders), [orders]);
+
+  const popularProducts = useMemo(() => {
+    const productsById = new Map();
+
+    orders.forEach((order) => {
+      (order.items || []).forEach((item) => {
+        const product =
+          item.product && typeof item.product === "object" ? item.product : {};
+        const key = product._id || item.product || item.title;
+
+        if (!key) return;
+
+        const currentProduct = productsById.get(key) || {
+          name: item.title || product.title || "Unavailable product",
+          image: item.image || product.images?.[0],
+          quantity: 0,
+          revenue: 0,
+        };
+        const quantity = Number(item.quantity) || 0;
+        const price = Number(item.unitPrice ?? product.price?.[item.size]) || 0;
+
+        currentProduct.quantity += quantity;
+        currentProduct.revenue += price * quantity;
+        productsById.set(key, currentProduct);
+      });
+    });
+
+    return [...productsById.values()]
+      .sort((first, second) => second.quantity - first.quantity)
+      .slice(0, 5);
+  }, [orders]);
 
   return (
-    <div className="md:px-8 py-6 xl:py-8 m-1 sm:m-3 h-[97vh] overflow-y-scroll lg:w-11/12 bg-primary shadow rounded-xl">
-      {/* Top Stats Cards */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="flexStart gap-7 p-5 bg-[#fff4d2] lg:min-w-56 rounded-xl border border-amber-200/50 shadow-sm">
-          <img src={assets.graph} alt="" className="hidden sm:flex w-8" />
+    <main className="m-1 h-[97vh] overflow-y-auto rounded-xl bg-primary px-3 py-6 shadow sm:m-3 sm:px-5 md:px-8 lg:w-11/12 xl:py-8">
+      <div className="mx-auto w-full max-w-[1120px]">
+        <header className="mb-6 flex flex-col gap-4 border-b border-[#e1e6e3] pb-6 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h4 className="h4 font-bold text-slate-800">
-              {dashboardData?.totalOrders?.toString().padStart(2, "0")}
-            </h4>
-            <h5 className="h5 text-secondary font-medium">Total Sales</h5>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-[#6f9a79]">
+              Overview
+            </p>
+            <h1 className="text-2xl font-semibold tracking-tight text-[#263b4a] sm:text-3xl">
+              Dashboard
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#71808a]">
+              Monitor your sales, revenue, and customer orders in real-time.
+            </p>
           </div>
-        </div>
-        <div className="flexStart gap-7 p-5 bg-[#fff4d2] lg:min-w-56 rounded-xl border border-amber-200/50 shadow-sm">
-          <img src={assets.dollar} alt="" className="hidden sm:flex w-8" />
-          <div>
-            <h4 className="h4 font-bold text-slate-800">
-              {dashboardData?.totalRevenue || 0}
-              {currency}
-            </h4>
-            <h5 className="h5 text-secondary font-medium">Total Earning</h5>
-          </div>
-        </div>
-      </div>
+        </header>
 
-      {/* All Orders/Sales */}
-      <div className="bg-primary mt-6 space-y-4">
-        {dashboardData.orders.map((order) => (
-          <div
-            key={order._id}
-            className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-100 shadow-sm transition-all hover:shadow-md"
-          >
-            {/* Products List */}
-            {order.items.map((item, idx) => (
-              <div
-                key={idx}
-                className="text-gray-700 flex flex-col lg:flex-row gap-4 mb-3 pb-3 border-b border-gray-100 last:border-0 last:pb-0 last:mb-0"
-              >
-                <div className="flex flex-[2] gap-x-3 items-center">
-                  <div className="flexCenter bg-slate-50 border border-slate-100 rounded-xl p-2 shrink-0">
-                    <img
-                      src={item.product.images[0]}
-                      alt=""
-                      className="max-h-16 max-w-16 object-contain"
-                    />
-                  </div>
-                  <div className="block w-full">
-                    <h5 className="h5 uppercase line-clamp-1 font-semibold text-slate-800">
-                      {item.product.title}
-                    </h5>
-                    <div className="flex flex-wrap gap-4 max-sm:gap-y-1 mt-1.5 text-sm text-slate-600">
-                      <div className="flex items-center gap-x-1.5">
-                        <span className="medium-14 text-slate-500">Price:</span>
-                        <span className="font-medium text-slate-800">
-                          {item.product.price[item.size]}
-                          {currency}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-x-1.5">
-                        <span className="medium-14 text-slate-500">
-                          Quantity:
-                        </span>
-                        <span className="font-medium text-slate-800">
-                          {item.quantity}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-x-1.5">
-                        <span className="medium-14 text-slate-500">Size:</span>
-                        <span className="font-medium text-slate-800 uppercase">
-                          {item.size}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <DashboardCard className="md:col-span-2 xl:col-span-2">
+            <div className="flex w-full items-center justify-between gap-3">
+              <h2 className="text-lg font-medium text-[#263b4a]">
+                Total Revenue
+              </h2>
 
-            {/* Orders Summary */}
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-t border-gray-200/60 pt-4 mt-3">
-              <div className="flex flex-col gap-2.5 w-full lg:w-auto">
-                <div className="flex items-center gap-x-2">
-                  <h5 className="medium-14 font-semibold text-slate-700">
-                    Order ID:
-                  </h5>
-                  <p className="text-gray-400 text-sm break-all font-mono">
-                    {order._id}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-x-6 gap-y-2">
-                  <div className="flex items-center gap-x-2">
-                    <h5 className="medium-14 font-medium text-slate-600">
-                      Customer:
-                    </h5>
-                    <span
-                      className={`px-2 py-0.5 rounded text-sm font-medium ${order.isPaid ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}
-                    >
-                      {order.address.firstName} {order.address.lastName}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-x-2">
-                    <h5 className="medium-14 font-medium text-slate-600">
-                      Phone:
-                    </h5>
-                    <span
-                      className={`px-2 py-0.5 rounded text-sm font-medium ${order.isPaid ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}
-                    >
-                      {order.address.phone}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-x-2">
-                    <h5 className="medium-14 font-medium text-slate-600">
-                      Address:
-                    </h5>
-                    <span
-                      className={`px-2 py-0.5 rounded text-sm font-medium ${order.isPaid ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}
-                    >
-                      {order.address.street}, {order.address.city},{""}{" "}
-                      {order.address.state}, {order.address.country},{""}{" "}
-                      {order.address.zipCode}
-                    </span>
-                  </div>
-                </div>
-                <div clsassName="flex gap-4">
-                  <div className="flex items-center gap-x-2">
-                    <h5 className="medium-14 font-medium text-slate-600">
-                      Payment Status:
-                    </h5>
-                    <p className="text-slate-800 text-sm font-bold">
-                      {order.isPaid ? "Done" : "Pending"}
-                    </p>
-                    <div className="flex items-center gap-x-2">
-                      <h5 className="medium-14 font-medium text-slate-600">
-                        Method:
-                      </h5>
-                      <p className="text-slate-800 text-sm font-bold">
-                        {order.paymentMethod}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-x-2">
-                    <h5 className="medium-14 font-medium text-slate-600">
-                      Date:
-                    </h5>
-                    <p className="text-slate-800 text-sm font-bold">
-                      {new Date(order.createdAt).toDateString()}
-                    </p>
-                    <div className="flex items-center gap-x-2">
-                      <h5 className="medium-14 font-medium text-slate-600">
-                        Amount:
-                      </h5>
-                      <p className="text-slate-800 text-sm font-bold">
-                        {order.amount}.000{currency}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between lg:justify-end gap-4 w-full lg:w-auto pt-2 lg:pt-0 border-t lg:border-t-0 border-gray-100">
-                <h5 className="medium-14 font-medium text-slate-600">
-                  Status:
-                </h5>
-                <select
-                  onChange={(e) => statusHandler(e, order._id)}
-                  value={order.status}
-                  className="text-sm font-semibold p-1 ring-1 ring-slate-900/5 rounded max-w-36 bg-primary"
-                >
-                  <option value="Order Placed">Order Placed</option>
-                  <option value="Packing">Packing</option>
-                  <option value="Shipping">Shipping</option>
-                  <option value="Delivery">Delivered</option>
-                </select>
-              </div>
+              <p className="text-xl font-medium text-black">
+                {formatThousandsVnd(dashboardData.totalRevenue || 0, currency)}
+              </p>
             </div>
+            <div className="mt-4 h-[360px] min-h-[360px] min-w-0 w-full">
+              <ResponsiveContainer width="100%" height={360} minWidth={0}>
+                <BarChart data={monthlyData}>
+                  <CartesianGrid vertical={false} stroke="#e9edef" />
+                  <XAxis
+                    dataKey="month"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "#7d8792", fontSize: 12 }}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "#7d8792", fontSize: 12 }}
+                  />
+                  <Tooltip
+                    formatter={(value) => formatThousandsVnd(value, currency)}
+                    cursor={{ fill: "#f4f6f5" }}
+                  />
+                  <Legend />
+                  <Bar
+                    dataKey="total"
+                    name="Total"
+                    fill="#9fc4a9"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="successful"
+                    name="Paid"
+                    fill="#263b4a"
+                    radius={[4, 4, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </DashboardCard>
+
+          <DashboardCard>
+            <CardTitle title="Todo List" />
+            <div className="mt-4 flex flex-col gap-3">
+              {[
+                "Review new orders",
+                "Update inventory",
+                "Prepare weekly report",
+                "Contact customers",
+              ].map((task, index) => (
+                <label
+                  key={task}
+                  className="flex items-center gap-3 rounded-lg border border-[#edf0f2] p-3 text-sm text-[#69747e]"
+                >
+                  <input
+                    type="checkbox"
+                    defaultChecked={index < 2}
+                    className="h-4 w-4 accent-[#263b4a]"
+                  />
+                  <span className={index < 2 ? "line-through opacity-60" : ""}>
+                    {task}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </DashboardCard>
+
+          <DashboardCard>
+            <CardTitle title="Popular Products" />
+            <div className="mt-4 flex flex-col gap-2">
+              {popularProducts.map((product, index) => (
+                <div
+                  key={`${product.name}-${index}`}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-[#edf0f2] p-3"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[#f2f5f3]">
+                      {product.image ? (
+                        <img
+                          src={product.image}
+                          alt={product.name}
+                          className="h-full w-full object-contain"
+                        />
+                      ) : (
+                        <Package size={16} className="text-[#8b949c]" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-[#263b4a]">
+                        {product.name}
+                      </p>
+                      <p className="text-xs text-[#8b949c]">
+                        {product.quantity} sold
+                      </p>
+                    </div>
+                  </div>
+                  <span className="shrink-0 text-xs font-semibold text-[#263b4a]">
+                    {formatThousandsVnd(product.revenue, currency)}
+                  </span>
+                </div>
+              ))}
+              {!popularProducts.length && <EmptyState text="No products yet" />}
+            </div>
+          </DashboardCard>
+        </div>
+
+        <section className="mt-4 rounded-xl border border-[#e2e7eb] bg-white p-4 shadow-sm sm:p-6">
+          <div className="mb-5 flex items-center justify-between border-b border-[#edf0f2] pb-4">
+            <div>
+              <h2 className="text-lg font-medium text-[#263b4a]">
+                All Orders / Sales
+              </h2>
+              <p className="mt-1 text-xs text-[#8b949c]">
+                Complete order information
+              </p>
+            </div>
+            <span className="rounded-full bg-[#edf5ef] px-3 py-1 text-xs font-medium text-[#50745a]">
+              {dashboardData.totalOrders || 0} total
+            </span>
           </div>
-        ))}
+
+          <div className="space-y-4">
+            {orders.map((order) => (
+              <OrderCard
+                key={order._id}
+                order={order}
+                currency={currency}
+                onStatusChange={statusHandler}
+              />
+            ))}
+            {!orders.length && <EmptyState text="No orders found" />}
+          </div>
+        </section>
       </div>
-    </div>
+    </main>
   );
 };
+
+const OrderCard = ({ order, currency, onStatusChange }) => {
+  const address = order.address || {};
+  const items = order.items || [];
+  const customerName = [address.firstName, address.lastName]
+    .filter(Boolean)
+    .join(" ");
+  const fullAddress = [
+    address.street,
+    address.state,
+    address.city,
+    address.country,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const zipcode = address.zipcode || address.zipCode || "—";
+  const createdAt = new Date(order.createdAt);
+  const formattedDate = Number.isNaN(createdAt.getTime())
+    ? "—"
+    : createdAt.toLocaleDateString("vi-VN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
+
+  return (
+    <article className="overflow-hidden rounded-xl border border-[#e2e7eb] bg-white shadow-sm">
+      <header className="flex flex-col gap-3 border-b border-[#edf0f2] bg-[#fafbfb] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#8b949c]">
+            Order
+          </p>
+          <h3
+            className="mt-1 truncate font-mono text-sm font-semibold text-[#263b4a]"
+            title={order._id}
+          >
+            #{String(order._id).slice(-8).toUpperCase()}
+          </h3>
+          <p className="mt-1 text-xs text-[#8b949c]">
+            Placed on {formattedDate}
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 sm:justify-end">
+          <span
+            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+              order.isPaid
+                ? "bg-[#edf6ee] text-[#4f7f5a]"
+                : "bg-[#fff5e5] text-[#a26f2c]"
+            }`}
+          >
+            {order.isPaid
+              ? "Paid"
+              : order.paymentMethod === "COD"
+                ? "Pay on delivery"
+                : "Pending"}
+          </span>
+          <div className="text-right">
+            <p className="text-[11px] uppercase tracking-wide text-[#8b949c]">
+              Total
+            </p>
+            <p className="mt-0.5 text-base font-semibold text-[#263b4a]">
+              {formatThousandsVnd(order.amount, currency)}
+            </p>
+          </div>
+        </div>
+      </header>
+
+      <div className="grid lg:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.75fr)]">
+        <section className="p-4 sm:p-5 lg:border-r lg:border-[#edf0f2]">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-[#263b4a]">Products</h4>
+            <span className="text-xs text-[#8b949c]">
+              {items.length} {items.length === 1 ? "item" : "items"}
+            </span>
+          </div>
+
+          <div className="mt-3 divide-y divide-[#edf0f2]">
+            {items.map((item, index) => {
+              const product =
+                item.product && typeof item.product === "object"
+                  ? item.product
+                  : {};
+              const productImage = item.image || product.images?.[0];
+              const productTitle =
+                item.title || product.title || "Unavailable product";
+
+              return (
+                <div
+                  key={item._id || index}
+                  className="flex items-start gap-4 py-3 first:pt-0 last:pb-0"
+                >
+                  {/* LEFT: Product */}
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[#edf0f2] bg-[#f7f9f8] p-1">
+                      {productImage ? (
+                        <img
+                          src={productImage}
+                          alt={productTitle}
+                          className="h-full w-full object-contain"
+                        />
+                      ) : (
+                        <Package size={19} className="text-[#8b949c]" />
+                      )}
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-[#263b4a]">
+                        {productTitle}
+                      </p>
+
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-[#69747e]">
+                        <span className="rounded-md bg-[#f1f4f2] px-2 py-1">
+                          Size: <b className="text-[#263b4a]">{item.size}</b>
+                        </span>
+
+                        <span className="rounded-md bg-[#f1f4f2] px-2 py-1">
+                          Qty: <b className="text-[#263b4a]">{item.quantity}</b>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* RIGHT: Price */}
+                  <div className="shrink-0 pt-0.5 text-right">
+                    <p className="whitespace-nowrap text-sm font-semibold leading-5 text-[#263b4a]">
+                      {formatThousandsVnd(
+                        item.unitPrice ?? product.price?.[item.size] ?? 0,
+                        currency,
+                      )}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <aside className="border-t border-[#edf0f2] bg-[#fcfdfc] p-4 sm:p-5 lg:border-t-0">
+          <h4 className="text-sm font-semibold text-[#263b4a]">
+            Customer details
+          </h4>
+
+          <dl className="mt-4 space-y-4">
+            <div>
+              <dt className="text-[11px] font-medium uppercase tracking-wide text-[#9aa3aa]">
+                Customer
+              </dt>
+              <dd className="mt-1 text-sm font-medium text-[#263b4a]">
+                {customerName || "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] font-medium uppercase tracking-wide text-[#9aa3aa]">
+                Phone
+              </dt>
+              <dd className="mt-1 text-sm text-[#52616b]">
+                {address.phone || "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] font-medium uppercase tracking-wide text-[#9aa3aa]">
+                Shipping address
+              </dt>
+              <dd className="mt-1 text-sm leading-5 text-[#52616b]">
+                {fullAddress || "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] font-medium uppercase tracking-wide text-[#9aa3aa]">
+                ZIP code
+              </dt>
+              <dd className="mt-1 text-sm font-medium text-[#263b4a]">
+                {zipcode}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] font-medium uppercase tracking-wide text-[#9aa3aa]">
+                Payment method
+              </dt>
+              <dd className="mt-1 text-sm font-medium text-[#263b4a]">
+                {order.paymentMethod || "—"}
+              </dd>
+            </div>
+          </dl>
+        </aside>
+      </div>
+
+      <footer className="flex flex-col gap-2 border-t border-[#edf0f2] bg-[#fafbfb] px-4 py-3 sm:flex-row sm:items-center sm:justify-end sm:px-5">
+        <label
+          htmlFor={`status-${order._id}`}
+          className="text-xs font-medium text-[#69747e]"
+        >
+          Order status
+        </label>
+        <select
+          id={`status-${order._id}`}
+          onChange={(event) => onStatusChange(event, order._id)}
+          value={order.status}
+          className="w-full rounded-md border border-[#dfe5e8] bg-white px-3 py-2 text-xs font-semibold text-[#263b4a] outline-none transition focus:border-[#9fc4a9] focus:ring-2 focus:ring-[#dcecdf] sm:w-40"
+        >
+          {!ORDER_STATUSES.includes(order.status) && (
+            <option value={order.status}>{order.status}</option>
+          )}
+          {ORDER_STATUSES.map((status) => (
+            <option key={status} value={status}>
+              {status === "Delivery" ? "Delivered" : status}
+            </option>
+          ))}
+        </select>
+      </footer>
+    </article>
+  );
+};
+
+const DashboardCard = ({ children, className = "" }) => (
+  <section
+    className={`min-w-0 rounded-xl border border-[#e2e7eb] bg-white p-4 shadow-sm sm:p-5 ${className}`}
+  >
+    {children}
+  </section>
+);
+
+const CardTitle = ({ title, description }) => (
+  <div>
+    <h2 className="text-lg font-medium text-[#263b4a]">{title}</h2>
+    {description && (
+      <p className="mt-1 text-xs font-medium text-[#8b949c]">{description}</p>
+    )}
+  </div>
+);
+
+const EmptyState = ({ text }) => (
+  <div className="py-8 text-center text-sm text-[#8b949c]">{text}</div>
+);
 
 export default Dashboard;

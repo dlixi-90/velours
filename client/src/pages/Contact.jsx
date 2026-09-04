@@ -13,7 +13,7 @@ export default function Contact() {
         <p className="max-md:text-sm text-gray-500 pb-10 text-center">
           Or just reach out manually to us at{" "}
           <a href="#" className="text-secondary hover:underline">
-            hello@vogues.com
+            hello@velours.com
           </a>
         </p>
 

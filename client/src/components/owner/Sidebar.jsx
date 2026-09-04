@@ -1,4 +1,3 @@
-import React from "react";
 import { useAppContext } from "../../context/AppContext";
 import { assets } from "../../assets/data";
 import { Link, NavLink, Outlet, Navigate } from "react-router-dom";
@@ -48,7 +47,7 @@ const Sidebar = () => {
               <div className="flex flex-1 p-3 lg:pl-12">
                 <Link to={"/"} className="flex items-end">
                   <img src={assets.logoImg} alt="logoImg" className="h-11" />
-                  <span className="bold-24 relative top-1 right-2">ogues</span>
+                  <span className="bold-24 relative top-1 right-2">elours</span>
                 </Link>
               </div>
               <div className="md:hidden flex items-center gap-3 md:bg-primary rounded-b-xl p-2 pl-5 lg:pl-10 md:mt-10">

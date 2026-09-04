@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useMemo } from "react";
 import Title from "./Title";
 import { Swiper, SwiperSlide } from "swiper/react";
 import "swiper/css";
@@ -8,12 +8,10 @@ import Item from "./Item";
 
 const NewArrivals = () => {
   const { products } = useAppContext();
-  const [newArrivals, setNewArrivals] = useState([]);
-
-  useEffect(() => {
-    const data = products.filter((item) => item.inStock).slice(0, 10);
-    setNewArrivals(data);
-  }, [products]);
+  const newArrivals = useMemo(
+    () => products.filter((item) => item.inStock).slice(0, 10),
+    [products],
+  );
 
   return (
     <section className="max-padd-container mt-28">
@@ -44,7 +42,7 @@ const NewArrivals = () => {
       >
         {newArrivals.map((product) => (
           <SwiperSlide key={product._id}>
-            <Item product={product} />
+            <Item product={product} collectionLayout />
           </SwiperSlide>
         ))}
       </Swiper>

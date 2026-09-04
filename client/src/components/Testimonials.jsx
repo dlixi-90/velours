@@ -6,25 +6,25 @@ const Testimonial = () => {
       image: assets.user1,
       name: "Briar Martin",
       handle: "@neilstellar",
-      date: "April 20, 2025",
+      date: "April 20, 2026",
     },
     {
       image: assets.user2,
       name: "Avery Johnson",
       handle: "@averywrites",
-      date: "May 10, 2025",
+      date: "May 10, 2026",
     },
     {
       image: assets.user3,
       name: "Jordan Lee",
       handle: "@jordantalks",
-      date: "June 5, 2025",
+      date: "June 5, 2026",
     },
     {
       image: assets.user4,
       name: "Avery Johnson",
       handle: "@averywrites",
-      date: "May 10, 2025",
+      date: "May 10, 2026",
     },
   ];
 

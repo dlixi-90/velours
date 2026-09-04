@@ -1,5 +1,7 @@
 import { useMemo } from "react";
 import { useAppContext } from "../context/AppContext";
+import { getShippingCharge } from "../utils/orderPricing";
+import { formatThousandsVnd } from "../utils/money";
 
 const CartTotal = ({
   currentStep,
@@ -43,12 +45,10 @@ const CartTotal = ({
   }, [products, cartItems]);
 
   const subtotal = getCartAmount();
-  const shipping = subtotal > 0 ? delivery_charges : 0;
+  const shipping = getShippingCharge(subtotal, delivery_charges);
   const total = subtotal + shipping;
 
-  const formatPrice = (value) => {
-    return `${Number(value).toLocaleString("vi-VN")}.000 ${currency}`;
-  };
+  const formatPrice = (value) => formatThousandsVnd(value, currency);
 
   return (
     <div>
@@ -115,7 +115,9 @@ const CartTotal = ({
         <div className="flex justify-between gap-4">
           <p className="text-gray-500">Shipping</p>
 
-          <p className="font-semibold">{formatPrice(shipping)}</p>
+          <p className="font-semibold">
+            {subtotal > 0 && shipping === 0 ? "Free" : formatPrice(shipping)}
+          </p>
         </div>
 
         <hr className="border-gray-200" />

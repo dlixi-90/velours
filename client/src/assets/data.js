@@ -919,11 +919,11 @@ export const dummyProducts = [
 // Blogs Dummy Data 
 export const blogs = [
   {
-    title: "Top 10 Skincare Must-Haves for 2025",
+    title: "Top 10 Skincare Must-Haves for 2026",
     category: "Skincare Tips",
     image: blog1,
     description:
-      "Discover the essential skincare products you need in your routine for glowing, healthy skin in 2025.",
+      "Discover the essential skincare products you need in your routine for glowing, healthy skin in 2026.",
   },
   {
     title: "How to Choose the Perfect Foundation Shade",
@@ -968,11 +968,11 @@ export const blogs = [
       "Simple but effective hacks to keep your lipstick fresh and vibrant from morning to evening.",
   },
   {
-    title: "2025 Beauty Forecast: Makeup and Skincare Trends",
+    title: "2026 Beauty Forecast: Makeup and Skincare Trends",
     category: "Beauty Trends",
     image: blog8,
     description:
-      "An expert look at the upcoming beauty and skincare trends that will define style in 2025.",
+      "An expert look at the upcoming beauty and skincare trends that will define style in 2026.",
   },
 ];
 
@@ -1031,8 +1031,8 @@ export const dummyOrdersData = [
     status: "Out for delivery",
     paymentMethod: "COD",
     isPaid: false,
-    createdAt: "2025-06-24T08:03:11.197+00:00",
-    updatedAt: "2025-06-24T11:02:04.631+00:00",
+    createdAt: "2026-06-24T08:03:11.197+00:00",
+    updatedAt: "2026-06-24T11:02:04.631+00:00",
     __v: 0,
   },
   {
@@ -1057,8 +1057,8 @@ export const dummyOrdersData = [
     status: "Delivered",
     paymentMethod: "Online",
     isPaid: true,
-    createdAt: "2025-07-01T09:15:45.197+00:00",
-    updatedAt: "2025-07-01T11:30:04.631+00:00",
+    createdAt: "2026-07-01T09:15:45.197+00:00",
+    updatedAt: "2026-07-01T11:30:04.631+00:00",
     __v: 0,
   },
 ];

@@ -1,119 +1,211 @@
-import React, { useEffect, useState } from "react";
+import { useState } from "react";
+import { Minus, Plus, ShieldCheck, Truck } from "lucide-react";
 import { useParams } from "react-router-dom";
 import ProductDescription from "../components/ProductDescription";
 import ProductFeatures from "../components/ProductFeatures";
+import PairWithProducts from "../components/PairWithProducts";
 import RelatedProducts from "../components/RelatedProducts";
 import { useAppContext } from "../context/AppContext";
-import { assets } from "../assets/data";
+import {
+  getAvailableSizes,
+  getSizeQuantity,
+  hasAnyAvailableSize,
+  isSizeAvailable,
+} from "../utils/productStock";
+import { FREE_SHIPPING_THRESHOLD } from "../utils/orderPricing";
+import { formatThousandsVnd } from "../utils/money";
+
+const MAX_QUANTITY_PER_ADD = 10;
 
 const ProductDetail = () => {
   const { products, currency, addToCart } = useAppContext();
-  const [image, setImage] = useState(null);
-  const [size, setSize] = useState(null);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [selectedSize, setSelectedSize] = useState(null);
+  const [quantity, setQuantity] = useState(1);
 
   const { productId } = useParams();
   const product = products.find((item) => item._id === productId);
+  const productAvailable = product ? hasAnyAvailableSize(product) : false;
+  const availableSizes = product ? getAvailableSizes(product) : [];
+  const size = availableSizes.includes(selectedSize)
+    ? selectedSize
+    : (availableSizes[0] ?? null);
+  const image = product?.images?.includes(selectedImage)
+    ? selectedImage
+    : (product?.images?.[0] ?? null);
+  const selectedSizeAvailable = product
+    ? isSizeAvailable(product, size)
+    : false;
+  const selectedStock = product ? getSizeQuantity(product, size) : 0;
+  const maxQuantity = Math.max(
+    1,
+    Math.min(MAX_QUANTITY_PER_ADD, selectedStock),
+  );
+  const safeQuantity = Math.min(quantity, maxQuantity);
 
-  useEffect(() => {
-    if (product) {
-      setImage(product.images[0]);
-      setSize(product.sizes[0]);
-    }
-  }, [product]);
+  const selectSize = (nextSize) => {
+    setSelectedSize(nextSize);
+    setQuantity(1);
+  };
+
+  if (!product) return null;
 
   return (
-    product && (
-      <div className="max-padd-container pt-20">
-        {/* Product Data */}
-        <div className="flex gap-10 flex-col xl:flex-row mt-3 mb-6">
-          {/* Image */}
-          <div className="flex flex-1 gap-x-2 max-w-[533px]">
-            <div className="flex-1 flexCenter flex-col gap-[7px] flex-wrap">
-              {product.images.map((item, i) => (
-                <div key={i} className="bg-primary rounded-xl">
+    <div className="max-padd-container pb-14 pt-24 sm:pt-28">
+      <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,720px)_minmax(390px,1fr)] xl:gap-14">
+        <section
+          className="w-full max-w-[720px] lg:sticky lg:top-24"
+          aria-label="Product gallery"
+        >
+          <div className="flex gap-2 sm:gap-3">
+            <div className="flex w-16 shrink-0 flex-col gap-2 sm:w-[72px]">
+              {product.images.map((item, index) => (
+                <button
+                  type="button"
+                  key={`${item}-${index}`}
+                  onClick={() => setSelectedImage(item)}
+                  aria-label={`View product image ${index + 1}`}
+                  className={`aspect-square overflow-hidden rounded-lg bg-[#f5f5f0] p-1.5 transition ${
+                    item === image
+                      ? "ring-1 ring-[#343434]"
+                      : "opacity-70 hover:opacity-100"
+                  }`}
+                >
                   <img
-                    onClick={() => setImage(item)}
                     src={item}
-                    alt="productImg"
-                    className="object-cover aspect-square"
+                    alt=""
+                    className="h-full w-full object-contain"
                   />
-                </div>
+                </button>
               ))}
             </div>
-            <div className="flex flex-[4] bg-primary rounded-2xl">
-              <img src={image} alt="" />
+
+            <div className="flex min-h-[320px] flex-1 items-center justify-center overflow-hidden rounded-2xl bg-[#f5f5f0] p-8 sm:min-h-[420px] sm:p-12 lg:min-h-[480px] lg:max-h-[520px]">
+              <img
+                src={image}
+                alt={product.title}
+                className="h-auto max-h-[470px] w-auto max-w-[82%] object-contain"
+              />
             </div>
           </div>
-          {/* Product Info */}
-          {/* Product Info */}
-          <div className="flex-1 px-5 py-3 bg-primary rounded-2xl">
-            <h3 className="h3 leading-none">{product.title}</h3>
+        </section>
 
-            {/* Rating & Price */}
-            <div className="flex items-center gap-x-2 pt-2">
-              <div className="flex gap-x-2 text-yellow-400">
-                <img src={assets.star} alt="" width={19} />
-                <img src={assets.star} alt="" width={19} />
-                <img src={assets.star} alt="" width={19} />
-                <img src={assets.star} alt="" width={19} />
-                <img src={assets.star} alt="" width={19} />
-              </div>
-              <p className="medium-14">(222)</p>
+        <section
+          className="min-w-0 py-1 lg:py-2"
+          aria-label="Product information"
+        >
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-[#858b87]">
+            {product.category} · {product.type.replaceAll("-", " ")}
+          </p>
+          <h1 className="text-2xl font-semibold leading-tight tracking-[-0.025em] text-[#303030] sm:text-3xl">
+            {product.title}
+          </h1>
+          <p className="mt-2 text-2xl text-[#737373]">
+            {formatThousandsVnd(size ? product.price?.[size] : 0, currency)}
+          </p>
+
+          <div className="mt-6 border-t border-[#dededb] pt-5">
+            <div className="mb-3 flex items-center justify-between gap-4">
+              <p className="text-xs font-medium uppercase tracking-[0.12em] text-[#4c4c4c]">
+                Select size
+              </p>
+              {size && (
+                <span className="text-xs text-[#858585]">
+                  {selectedStock} in stock
+                </span>
+              )}
             </div>
-            <div className="h4 flex items-baseline gap-4 my-2">
-              <h3 className="h3 text-secondary">
-                {product.price[size]}.000
-                {currency}
-              </h3>
-            </div>
-            <p className="max-w-[555px]">{product.description}</p>
-            <div className="flex flex-col gap-4 my-4 mb-5">
-              <div className="flex gap-2">
-                {[...product.sizes].map((item, i) => (
+
+            <div className="flex flex-wrap gap-2">
+              {(product.sizes ?? []).map((item) => {
+                const available = isSizeAvailable(product, item);
+
+                return (
                   <button
-                    key={i}
-                    onClick={() => setSize(item)}
-                    className={`${
-                      item === size ? "bg-primary-dark" : "bg-white"
-                    } medium-14 h-8 w-16 ring-1 ring-slate-900/10 cursor-pointer rounded-lg`}
+                    key={item}
+                    type="button"
+                    disabled={!available}
+                    onClick={() => selectSize(item)}
+                    className={`min-w-20 rounded-lg border px-4 py-2.5 text-xs transition ${
+                      item === size
+                        ? "border-[#343434] bg-[#343434] text-white"
+                        : available
+                          ? "border-[#d8d8d4] bg-white hover:border-[#777]"
+                          : "cursor-not-allowed border-[#e7e7e4] bg-[#f5f5f2] text-[#b1b1ad] line-through"
+                    }`}
                   >
                     {item}
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
-            <div className="flex items-center gap-x-4">
+
+            {!productAvailable && (
+              <p className="mt-3 text-sm font-medium text-red-500">
+                Out of stock
+              </p>
+            )}
+          </div>
+
+          <div className="mt-5 flex gap-2">
+            <div className="flex h-12 shrink-0 items-center overflow-hidden rounded-lg border border-[#cfcfcb]">
               <button
-                onClick={() => addToCart(product._id, size)}
-                className="btn-dark sm:w-1/2 flexCenter gap-x-2 capitalize"
+                type="button"
+                onClick={() =>
+                  setQuantity((current) => Math.max(1, current - 1))
+                }
+                disabled={!selectedSizeAvailable || safeQuantity <= 1}
+                className="flex h-full w-10 items-center justify-center disabled:cursor-not-allowed disabled:opacity-35"
+                aria-label="Decrease quantity"
               >
-                Add to Cart
-                <img src={assets.cartAdd} alt="" width={19} />
+                <Minus size={14} />
               </button>
-              <button className="btn-white">
-                <img src={assets.heartAdd} alt="" width={19} />
-              </button>
-            </div>
-            <div className="flex items-center gap-x-2 mt-3">
-              <img src={assets.delivery} alt="" width={17} />
-              <span className="medium-14">
-                Free Delivery on orders over 1.000.000₫
+              <span className="w-7 text-center text-sm" aria-live="polite">
+                {safeQuantity}
               </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setQuantity((current) => Math.min(maxQuantity, current + 1))
+                }
+                disabled={!selectedSizeAvailable || safeQuantity >= maxQuantity}
+                className="flex h-full w-10 items-center justify-center disabled:cursor-not-allowed disabled:opacity-35"
+                aria-label="Increase quantity"
+              >
+                <Plus size={14} />
+              </button>
             </div>
-            <hr className="my-3 w-2/3" />
-            <div className="mt-2 flex flex-col gap-1 text-gray-30 text-[14px]">
-              <p>Authenticy You Can Trust</p>
-              <p>Enjoy Cash on Delivery for Your Convenience</p>
-              <p>Easy Returns and Exchanges Within 7 Days</p>
+
+            <button
+              type="button"
+              onClick={() => addToCart(product._id, size, safeQuantity)}
+              disabled={!selectedSizeAvailable}
+              className="h-12 flex-1 rounded-lg bg-[#242424] px-5 text-xs font-medium uppercase tracking-[0.12em] text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              Add to cart
+            </button>
+          </div>
+
+          <ProductDescription product={product} selectedSize={size} />
+          <PairWithProducts product={product} productId={productId} />
+
+          <div className="mt-5 grid gap-2 text-xs text-[#70756f] sm:grid-cols-2">
+            <div className="flex items-center gap-2">
+              <Truck size={16} />
+              Free delivery from{" "}
+              {(FREE_SHIPPING_THRESHOLD * 1000).toLocaleString("vi-VN")}₫
+            </div>
+            <div className="flex items-center gap-2 sm:justify-end">
+              <ShieldCheck size={16} />
+              Authentic products
             </div>
           </div>
-        </div>
-        <ProductDescription />
-        <ProductFeatures />
-        {/* Related Products */}
-        <RelatedProducts product={product} productId={productId} />
+        </section>
       </div>
-    )
+
+      <ProductFeatures />
+      <RelatedProducts product={product} productId={productId} />
+    </div>
   );
 };
 

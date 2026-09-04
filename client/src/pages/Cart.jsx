@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import Title from "../components/Title";
 import CartTotal from "../components/CartTotal";
@@ -7,25 +7,33 @@ import QrPaymentStatus from "../components/QrPaymentStatus";
 import CheckoutAddressForm from "../components/checkout/CheckoutAddressForm";
 import { useAppContext } from "../context/AppContext";
 import { assets } from "../assets/data";
+import { formatThousandsVnd } from "../utils/money";
 
 const Cart = () => {
-  const { navigate, user, products, currency, cartItems, updateQuantity } =
-    useAppContext();
+  const {
+    navigate,
+    user,
+    products,
+    currency,
+    cartItems,
+    updateQuantity,
+    axios,
+    getToken,
+  } = useAppContext();
 
-  const [cartData, setCartData] = useState([]);
   const [currentStep, setCurrentStep] = useState(1);
   const [highestStep, setHighestStep] = useState(1);
   const [createdOrder, setCreatedOrder] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (products.length === 0) return;
+  const cartData = useMemo(() => {
+    if (products.length === 0) return [];
 
     const result = [];
 
     for (const productId in cartItems) {
-      for (const size in cartItems[productId]) {
-        if (cartItems[productId][size] > 0) {
+      for (const size in cartItems[productId] || {}) {
+        if (Number(cartItems[productId]?.[size]) > 0) {
           result.push({
             _id: productId,
             size,
@@ -34,8 +42,36 @@ const Cart = () => {
       }
     }
 
-    setCartData(result);
+    return result;
   }, [products, cartItems]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+
+    let isActive = true;
+
+    const restorePendingPayment = async () => {
+      try {
+        const { data } = await axios.get("/api/orders/pending-payment", {
+          headers: { Authorization: `Bearer ${await getToken()}` },
+        });
+
+        if (isActive && data.success && data.order) {
+          setCreatedOrder(data.order);
+          setCurrentStep(3);
+          setHighestStep(3);
+        }
+      } catch {
+        // The cart remains usable if no pending payment can be restored.
+      }
+    };
+
+    restorePendingPayment();
+
+    return () => {
+      isActive = false;
+    };
+  }, [axios, getToken, user]);
 
   const increment = (productId, size) => {
     const quantity = cartItems[productId]?.[size] || 0;
@@ -69,6 +105,13 @@ const Cart = () => {
     setCreatedOrder(order);
     setCurrentStep(3);
     setHighestStep(3);
+    window.scrollTo(0, 0);
+  };
+
+  const handleQrExpired = () => {
+    setCreatedOrder(null);
+    setCurrentStep(1);
+    setHighestStep(1);
     window.scrollTo(0, 0);
   };
 
@@ -113,7 +156,11 @@ const Cart = () => {
 
                   if (!product) return null;
 
-                  const quantity = cartItems[item._id][item.size];
+                  const quantity = Number(
+                    cartItems[item._id]?.[item.size] ?? 0,
+                  );
+
+                  if (quantity <= 0) return null;
 
                   return (
                     <div
@@ -170,8 +217,10 @@ const Cart = () => {
                       </div>
 
                       <div className="text-center bold-16">
-                        {product.price[item.size] * quantity}
-                        .000 {currency}
+                        {formatThousandsVnd(
+                          product.price[item.size] * quantity,
+                          currency,
+                        )}
                       </div>
 
                       <button
@@ -245,7 +294,10 @@ const Cart = () => {
 
       {/* STEP 3 QR */}
       {currentStep === 3 && createdOrder?.paymentMethod === "QR" && (
-        <QrPaymentStatus initialOrder={createdOrder} />
+        <QrPaymentStatus
+          initialOrder={createdOrder}
+          onExpired={handleQrExpired}
+        />
       )}
 
       {/* STEP 3 COD */}

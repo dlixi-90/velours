@@ -1,44 +1,92 @@
-import React from "react";
+import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 
-const ProductDescription = () => {
+const getIngredientCopy = (product) => {
+  if (Array.isArray(product.ingredients) && product.ingredients.length > 0) {
+    return product.ingredients.join(", ");
+  }
+
+  if (typeof product.ingredients === "string" && product.ingredients.trim()) {
+    return product.ingredients;
+  }
+
+  return "The complete ingredient list is printed on the product packaging. Please check the label before use if you have allergies or known sensitivities.";
+};
+
+const ProductDescription = ({ product, selectedSize }) => {
+  const [openSection, setOpenSection] = useState("description");
+
+  const sections = [
+    {
+      id: "description",
+      label: "Description",
+      content: (
+        <p className="text-sm leading-6 text-[#697078]">
+          {product.description}
+        </p>
+      ),
+    },
+    {
+      id: "ingredients",
+      label: "Ingredients",
+      content: (
+        <p className="text-sm leading-6 text-[#697078]">
+          {getIngredientCopy(product)}
+        </p>
+      ),
+    },
+    {
+      id: "size-guide",
+      label: "Size guide",
+      content: (
+        <div>
+          <p className="text-sm leading-6 text-[#697078]">
+            Available in {product.sizes.join(", ")}.
+            {selectedSize ? ` You are viewing the ${selectedSize} size.` : ""}
+          </p>
+          <p className="mt-2 text-xs leading-5 text-[#92989d]">
+            Choose a smaller size for travel or trial, and a larger size for
+            regular use.
+          </p>
+        </div>
+      ),
+    },
+  ];
+
   return (
-    <div className="mt-14 bg-white">
-      <div className="flex gap-3 bg-primary rounded-t-2xl">
-        <button className="medium-14 p-3 w-32 border-b-2 border-secondary">
-          Description
-        </button>
-        <button className="medium-14 p-3 w-32">Color Guide</button>
-        <button className="medium-14 p-3 w-32">Size Guide</button>
-      </div>
+    <div className="mt-5 overflow-hidden rounded-xl border border-[#dededb]">
+      {sections.map((section) => {
+        const isOpen = openSection === section.id;
 
-      <hr className="h-[1px] w-full text-slate-900/20" />
+        return (
+          <div
+            key={section.id}
+            className="border-b border-[#dededb] last:border-b-0"
+          >
+            <button
+              type="button"
+              onClick={() => setOpenSection(isOpen ? null : section.id)}
+              className="flex w-full items-center justify-between px-4 py-4 text-left text-sm font-medium text-[#343434] transition hover:bg-[#fafaf8]"
+              aria-expanded={isOpen}
+              aria-controls={`product-${section.id}`}
+            >
+              {section.label}
+              <ChevronDown
+                size={16}
+                className={`shrink-0 transition-transform duration-200 ${
+                  isOpen ? "rotate-180" : ""
+                }`}
+              />
+            </button>
 
-      <div className="flex flex-col gap-3 p-3">
-        <div>
-          <h5 className="h5">Detail</h5>
-          <p className="text-sm">
-            Lorem ipsum dolor sit amet consectetur adipisicing elit. Molestiae
-            dicta adipisci nihil deserunt delectus? Dignissimos, numquam eum,
-            voluptates reiciendis ipsa maxime enim quasi praesentium est totam
-            neque dolores quam
-          </p>
-          <p>
-            Lorem ipsum dolor sit amet consectetur adipisicing elit. Sed
-            voluptatem magni cupiditate in voluptates non ea.
-          </p>
-        </div>
-
-        <div>
-          <h5 className="h5">Benefit</h5>
-          <ul className="list-disc pl-5 text-sm text-gray-30 flex flex-col gap-1">
-            <li>
-              High-quality materials ensure long-lasting durability and comfort.
-            </li>
-            <li>Designed to meet the needs of modern, active lifestyles.</li>
-            <li>Available in a wide range of colors and trendy colors.</li>
-          </ul>
-        </div>
-      </div>
+            {isOpen && (
+              <div id={`product-${section.id}`} className="px-4 pb-4 pr-8">
+                {section.content}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 };
