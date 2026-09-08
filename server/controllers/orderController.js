@@ -7,6 +7,7 @@ import Address from "../models/Address.js";
 import mongoose, { isObjectIdOrHexString } from "mongoose";
 import { getSizeQuantity, isSizeAvailable } from "../utils/productStock.js";
 import { getOrderTotal } from "../utils/orderPricing.js";
+import { buildOrderConfirmationEmail } from "../emails/orderConfirmation.js";
 
 // Global variables for payment
 const orderStatuses = ["Order Placed", "Packing", "Shipping", "Delivery"];
@@ -34,14 +35,6 @@ class OrderRequestError extends Error {
     this.statusCode = statusCode;
   }
 }
-
-const escapeHtml = (value) =>
-  String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 
 const sendOrderError = (res, error) => {
   const statusCode = error.statusCode || 500;
@@ -431,32 +424,12 @@ export const placeOrderCOD = async (req, res) => {
     );
     const user = await User.findById(userId);
 
-    const productTitles = populatedOrder.items
-      .map((item) => item.title || item.product?.title || "Unknown")
-      .join(", ");
-    const addressString = populatedOrder.address
-      ? `${populatedOrder.address.street || "N/A"}, ${populatedOrder.address.city || "N/A"}, ${populatedOrder.address.state || "N/A"}, ${populatedOrder.address.country || "N/A"}`
-      : "No address";
-
-    const mailOptions = {
-      from: process.env.SMTP_SENDER_EMAIL,
-      to: user.email,
-      subject: "Order Details (COD)",
-      html: `
-      <h2>Your Delivery Details</h2>
-      <p>Thank you for your Order! Below are your Order details:</p>
-      <ul>
-        <li><strong>Order ID:</strong> ${escapeHtml(populatedOrder._id)}</li>
-        <li><strong>Products Name:</strong> ${escapeHtml(productTitles)}</li>
-        <li><strong>Address:</strong> ${escapeHtml(addressString)}</li>
-        <li><strong>Total Amount:</strong> ${Math.round(Number(populatedOrder.amount) * 1000).toLocaleString("vi-VN")} ${escapeHtml(process.env.CURRENCY || "VND")}</li>
-      </ul>
-      <p>You will get your delivery in 1-2 Days. Pay on delivery</p>
-      `,
-    };
-
     try {
-      await transporter.sendMail(mailOptions);
+      await transporter.sendMail({
+        from: { name: "Velours", address: process.env.SMTP_SENDER_EMAIL },
+        to: user.email,
+        ...buildOrderConfirmationEmail(populatedOrder),
+      });
     } catch (emailError) {
       console.log("Could not send COD confirmation email:", emailError.message);
     }
