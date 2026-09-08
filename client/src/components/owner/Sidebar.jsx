@@ -18,6 +18,11 @@ const Sidebar = () => {
       icon: assets.squarePlus,
     },
     {
+      path: "/owner/add-category",
+      label: "Add Category",
+      icon: assets.squarePlus,
+    },
+    {
       path: "/owner/list-product",
       label: "List Product",
       icon: assets.list,
@@ -66,7 +71,7 @@ const Sidebar = () => {
                 </div>
               </div>
             </div>
-            <div className="flex md:flex-col md:gap-x-5 gap-y-8 md:mt-4">
+            <div className="flex flex-wrap justify-center md:flex-col md:gap-x-5 gap-y-4 md:gap-y-8 md:mt-4">
               {navItems.map((link) => (
                 <NavLink
                   key={link.label}

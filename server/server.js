@@ -7,6 +7,8 @@ import clerkWebhooks from "./controllers/ClerkWebhooks.js";
 import userRouter from "./routes/userRoute.js";
 import connectCloudinary from "./config/cloudinary.js";
 import productRouter from "./routes/productRoute.js";
+import categoryRouter from "./routes/categoryRoute.js";
+import { initializeCategories } from "./services/categoryService.js";
 import addressRouter from "./routes/addressRoute.js";
 import cartRouter from "./routes/cartRoute.js";
 import orderRouter from "./routes/orderRoute.js";
@@ -14,6 +16,7 @@ import aiRouter from "./routes/aiRoute.js";
 import multer from "multer";
 
 await connectDB(); // Establish connection to the database
+await initializeCategories();
 await connectCloudinary(); //Setup cloudinary for image storage
 
 const app = express(); // Initialize Express Application
@@ -31,6 +34,7 @@ app.use(clerkMiddleware());
 // Define API Routes
 app.use("/api/users", userRouter); // Routes for User functionality
 app.use("/api/products", productRouter); // Routes for handling products
+app.use("/api/categories", categoryRouter);
 app.use("/api/addresses", addressRouter); // Routes for handling addresses
 app.use("/api/cart", cartRouter); // Routes for handling cart
 app.use("/api/orders", orderRouter);

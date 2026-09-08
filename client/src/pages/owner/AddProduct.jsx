@@ -4,20 +4,6 @@ import { Check, ImagePlus, PackagePlus, Plus, Trash2, X } from "lucide-react";
 import { useAppContext } from "../../context/AppContext";
 import { useParams } from "react-router-dom";
 
-const ALL_CATEGORIES = ["Hair Care", "Body Care", "Face Care"];
-
-const ALL_TYPES = [
-  "Body-Spray",
-  "Cleanser",
-  "Hand-Wash",
-  "Lip-Product",
-  "Lotion",
-  "Oil",
-  "Perfume",
-  "Serum",
-  "Shampoo",
-];
-
 const createEmptyImages = () => ({
   1: null,
   2: null,
@@ -39,13 +25,15 @@ const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 const AddProduct = () => {
   const { productId } = useParams();
 
-  const { axios, getToken, products, fetchProducts, navigate } =
+  const { axios, getToken, products, fetchProducts, navigate, categories,
+    categoriesLoading, categoriesError, fetchCategories } =
     useAppContext();
 
   const isEditMode = Boolean(productId);
 
   const [images, setImages] = useState(createEmptyImages);
   const [inputs, setInputs] = useState(createEmptyInputs);
+  const availableTypes = categories.find((item) => item.name === inputs.category)?.types || [];
 
   const [sizePrices, setSizePrices] = useState([]);
   const [newSize, setNewSize] = useState("");
@@ -101,6 +89,7 @@ const AddProduct = () => {
     setInputs((currentInputs) => ({
       ...currentInputs,
       [field]: value,
+      ...(field === "category" && { type: "" }),
     }));
   };
 
@@ -226,6 +215,11 @@ const AddProduct = () => {
 
     if (sizePrices.length === 0) {
       toast.error("Please add at least one size, price and quantity");
+      return;
+    }
+
+    if (!availableTypes.some((type) => type.name === inputs.type)) {
+      toast.error("Please select a valid type for this category");
       return;
     }
 
@@ -438,12 +432,22 @@ const AddProduct = () => {
                   >
                     <option value="">Select category</option>
 
-                    {ALL_CATEGORIES.map((category) => (
-                      <option key={category} value={category}>
-                        {category}
+                    {inputs.category && !categories.some((item) => item.name === inputs.category) && (
+                      <option value={inputs.category}>{inputs.category}</option>
+                    )}
+                    {categories.map((category) => (
+                      <option key={category._id} value={category.name}>
+                        {category.name}
                       </option>
                     ))}
                   </select>
+                  {categoriesLoading && <span className="mt-1 block text-xs text-[#839099]">Loading categories...</span>}
+                  {categoriesError && (
+                    <span className="mt-1 block text-xs text-[#b55f5f]">
+                      {categoriesError}{" "}
+                      <button type="button" onClick={fetchCategories} className="underline">Retry</button>
+                    </span>
+                  )}
                 </Field>
 
                 <Field label="Product type" required>
@@ -454,15 +458,22 @@ const AddProduct = () => {
                     }
                     className="admin-input"
                     required
+                    disabled={!inputs.category || categoriesLoading || Boolean(categoriesError) || availableTypes.length === 0}
                   >
-                    <option value="">Select type</option>
+                    <option value="">{inputs.category ? "Select type" : "Select category first"}</option>
 
-                    {ALL_TYPES.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
+                    {availableTypes.map((type) => (
+                      <option key={type._id} value={type.name}>
+                        {type.name}
                       </option>
                     ))}
                   </select>
+                  {inputs.category && !categoriesLoading && !categoriesError && availableTypes.length === 0 && (
+                    <span className="mt-1.5 block text-xs text-[#839099]">
+                      No types in this category yet.{" "}
+                      <button type="button" onClick={() => navigate("/owner/add-category")} className="underline">Manage category types</button>
+                    </span>
+                  )}
                 </Field>
               </div>
 

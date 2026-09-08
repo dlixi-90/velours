@@ -46,6 +46,9 @@ const getRequestErrorMessage = (error, fallbackMessage) => {
 
 export const AppContextProvider = ({ children }) => {
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [categoriesError, setCategoriesError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [cartItems, setCartItems] = useState({});
   const [method, setMethod] = useState("COD");
@@ -93,6 +96,31 @@ export const AppContextProvider = ({ children }) => {
       toast.error(error.message);
     }
   }, []);
+
+  const fetchCategories = useCallback(async () => {
+    setCategoriesLoading(true);
+    setCategoriesError("");
+    try {
+      const { data } = await axios.get("/api/categories");
+      if (!data.success) throw new Error(data.message || "Unable to load categories");
+      setCategories(data.categories);
+    } catch (error) {
+      setCategoriesError(getRequestErrorMessage(error, "Unable to load categories"));
+    } finally {
+      setCategoriesLoading(false);
+    }
+  }, []);
+
+  const replaceCategory = (category) => {
+    setCategories((current) =>
+      [...current.filter((item) => item._id !== category._id), category]
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    );
+  };
+
+  const removeCategory = (categoryId) => {
+    setCategories((current) => current.filter((category) => category._id !== categoryId));
+  };
 
   // Replace only the product returned by an update API.
   // This avoids fetching the complete catalog after every stock toggle.
@@ -348,10 +376,21 @@ export const AppContextProvider = ({ children }) => {
     return () => window.clearTimeout(timeoutId);
   }, [fetchProducts]);
 
+  useEffect(() => {
+    const timeoutId = window.setTimeout(fetchCategories, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [fetchCategories]);
+
   const value = {
     navigate,
     user,
     products,
+    categories,
+    categoriesLoading,
+    categoriesError,
+    fetchCategories,
+    replaceCategory,
+    removeCategory,
     fetchProducts,
     replaceProduct,
     currency,

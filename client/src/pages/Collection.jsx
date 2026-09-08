@@ -8,8 +8,6 @@ import {
   hasAnyAvailableSize,
 } from "../utils/productStock";
 
-const allCategories = ["Hair Care", "Body Care", "Face Care"];
-
 const getDisplayedPrice = (product) => {
   const firstAvailableSize = getAvailableSizes(product)[0];
   const price = Number(product.price?.[firstAvailableSize]);
@@ -18,7 +16,11 @@ const getDisplayedPrice = (product) => {
 };
 
 const Collection = () => {
-  const { products, searchQuery } = useAppContext();
+  const { products, searchQuery, categories } = useAppContext();
+  const allCategories = [...new Set([
+    ...categories.map((item) => item.name),
+    ...products.map((item) => item.category).filter(Boolean),
+  ])];
   const [category, setCategory] = useState([]);
   const [type, setType] = useState([]);
   const [selectedSort, setSelectedSort] = useState("relevant");
@@ -35,9 +37,8 @@ const Collection = () => {
   };
 
   const availableTypes = useMemo(() => {
-    const selectedCats = category.length > 0 ? category : allCategories;
     const filteredProds = products.filter((p) =>
-      selectedCats.includes(p.category),
+      category.length === 0 || category.includes(p.category),
     );
     return [...new Set(filteredProds.map((p) => p.type))].sort();
   }, [category, products]);

@@ -14,6 +14,7 @@ const MyOrders = lazy(() => import("./pages/MyOrders"));
 const Sidebar = lazy(() => import("./components/owner/Sidebar"));
 const Dashboard = lazy(() => import("./pages/owner/Dashboard"));
 const AddProduct = lazy(() => import("./pages/owner/AddProduct"));
+const AddCategory = lazy(() => import("./pages/owner/AddCategory"));
 const ListProduct = lazy(() => import("./pages/owner/ListProduct"));
 
 const App = () => {
@@ -41,6 +42,7 @@ const App = () => {
           <Route path="/owner" element={<Sidebar />}>
             <Route index element={<Dashboard />} />
             <Route path="add-product" element={<AddProduct />} />
+            <Route path="add-category" element={<AddCategory />} />
             <Route path="list-product" element={<ListProduct />} />
             <Route path="edit-product/:productId" element={<AddProduct />} />
           </Route>

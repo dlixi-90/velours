@@ -1,5 +1,6 @@
 import { v2 as cloudinary } from "cloudinary";
 import Product from "../models/Product.js";
+import { validateProductCategory } from "../services/categoryService.js";
 import { isValidObjectId } from "mongoose";
 import User from "../models/User.js";
 import { unlink } from "node:fs/promises";
@@ -133,6 +134,8 @@ export const createProduct = async (req, res) => {
     if (images.length === 0) {
       throw new ProductRequestError("At least one image is required");
     }
+
+    await validateProductCategory(productData);
 
     // Upload images tp cloudinary
     const imagesUrl = await Promise.all(
@@ -349,6 +352,7 @@ export const updateProduct = async (req, res) => {
 
     const rawProductData = parseProductData(req.body.productData);
     const productData = normalizeProductData(rawProductData, currentProduct);
+    await validateProductCategory(productData);
     const existingImages = Array.isArray(rawProductData.existingImages)
       ? rawProductData.existingImages
       : [];

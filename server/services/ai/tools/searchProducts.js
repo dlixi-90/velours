@@ -7,7 +7,6 @@ import {
 
 const DEFAULT_RESULT_LIMIT = 5;
 const MAX_RESULT_LIMIT = 8;
-const ALLOWED_CATEGORIES = ["Hair Care", "Body Care", "Face Care"];
 const ALLOWED_SORTS = ["relevant", "price_asc", "price_desc", "newest"];
 const ALLOWED_AVAILABILITY = ["all", "available", "out_of_stock"];
 
@@ -75,7 +74,7 @@ export const searchProductsToolDefinition = {
         },
         category: {
           type: "string",
-          enum: ALLOWED_CATEGORIES,
+          maxLength: 100,
           description: "Danh mục sản phẩm nếu người dùng yêu cầu cụ thể.",
         },
         type: {
@@ -128,17 +127,13 @@ export const searchProducts = async (argumentsValue = {}) => {
   }
 
   const query = readOptionalText(argumentsValue.query, "query", 100);
-  const category = readOptionalText(argumentsValue.category, "category", 50);
+  const category = readOptionalText(argumentsValue.category, "category", 100);
   const type = readOptionalText(argumentsValue.type, "type", 80);
   const minPrice = readOptionalPrice(argumentsValue.minPrice, "minPrice");
   const maxPrice = readOptionalPrice(argumentsValue.maxPrice, "maxPrice");
   const sort = argumentsValue.sort || "relevant";
   const availability = argumentsValue.availability || "all";
   const limit = argumentsValue.limit ?? DEFAULT_RESULT_LIMIT;
-
-  if (category && !ALLOWED_CATEGORIES.includes(category)) {
-    throw new Error("category không hợp lệ");
-  }
 
   if (!ALLOWED_SORTS.includes(sort)) {
     throw new Error("sort không hợp lệ");

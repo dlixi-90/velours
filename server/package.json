@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "server": "nodemon server.js",
-    "test": "node --test --test-concurrency=1 tests/core/ordersAndSecurity.test.js tests/core/pricingAndStock.test.js tests/ai/security.test.js tests/ai/tools.test.js tests/ai/controller.test.js tests/ai/agent.test.js tests/ai/rateLimit.test.js",
+    "test": "node --test --test-concurrency=1 tests/core/categories.test.js tests/core/ordersAndSecurity.test.js tests/core/pricingAndStock.test.js tests/ai/security.test.js tests/ai/tools.test.js tests/ai/controller.test.js tests/ai/agent.test.js tests/ai/rateLimit.test.js",
     "test:ai": "node --test --test-concurrency=1 tests/ai/security.test.js tests/ai/tools.test.js tests/ai/controller.test.js tests/ai/agent.test.js tests/ai/rateLimit.test.js"
   },
   "keywords": [],
