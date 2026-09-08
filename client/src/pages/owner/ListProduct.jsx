@@ -222,10 +222,6 @@ const ListProduct = () => {
             <h1 className="mt-2 text-2xl font-semibold text-[#263b4a] sm:text-3xl">
               Product List
             </h1>
-
-            <p className="mt-2 text-sm leading-6 text-[#71808a]">
-              View your catalog and manage product availability.
-            </p>
           </div>
 
           <div className="inline-flex w-fit items-center gap-2 rounded-full border border-[#d8e5da] bg-[#edf6ee] px-3 py-1.5 text-xs font-medium text-[#557b5e]">

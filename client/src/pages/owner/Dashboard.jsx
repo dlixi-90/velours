@@ -185,9 +185,6 @@ const Dashboard = () => {
             <h1 className="text-2xl font-semibold tracking-tight text-[#263b4a] sm:text-3xl">
               Dashboard
             </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#71808a]">
-              Monitor your sales, revenue, and customer orders in real-time.
-            </p>
           </div>
         </header>
 
@@ -310,9 +307,6 @@ const Dashboard = () => {
               <h2 className="text-lg font-medium text-[#263b4a]">
                 All Orders / Sales
               </h2>
-              <p className="mt-1 text-xs text-[#8b949c]">
-                Complete order information
-              </p>
             </div>
             <span className="rounded-full bg-[#edf5ef] px-3 py-1 text-xs font-medium text-[#50745a]">
               {dashboardData.totalOrders || 0} total

@@ -323,9 +323,7 @@ const CheckoutAddressForm = ({
       }
 
       if (method === "COD") {
-        setCartItems((currentCart) =>
-          removePurchasedItems(currentCart, items),
-        );
+        setCartItems((currentCart) => removePurchasedItems(currentCart, items));
       }
 
       await fetchProducts();
@@ -358,10 +356,6 @@ const CheckoutAddressForm = ({
       <p className="text-sm uppercase tracking-wider text-gray-400">Checkout</p>
 
       <h2 className="mt-1 text-2xl font-semibold">Delivery Information</h2>
-
-      <p className="mt-2 text-sm text-gray-500">
-        Enter the address where you want your order delivered.
-      </p>
 
       <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2">
         {contactFields.map((field) => (

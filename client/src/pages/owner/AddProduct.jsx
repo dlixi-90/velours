@@ -25,15 +25,24 @@ const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 const AddProduct = () => {
   const { productId } = useParams();
 
-  const { axios, getToken, products, fetchProducts, navigate, categories,
-    categoriesLoading, categoriesError, fetchCategories } =
-    useAppContext();
+  const {
+    axios,
+    getToken,
+    products,
+    fetchProducts,
+    navigate,
+    categories,
+    categoriesLoading,
+    categoriesError,
+    fetchCategories,
+  } = useAppContext();
 
   const isEditMode = Boolean(productId);
 
   const [images, setImages] = useState(createEmptyImages);
   const [inputs, setInputs] = useState(createEmptyInputs);
-  const availableTypes = categories.find((item) => item.name === inputs.category)?.types || [];
+  const availableTypes =
+    categories.find((item) => item.name === inputs.category)?.types || [];
 
   const [sizePrices, setSizePrices] = useState([]);
   const [newSize, setNewSize] = useState("");
@@ -342,17 +351,6 @@ const AddProduct = () => {
             <h1 className="text-2xl font-semibold tracking-tight text-[#263b4a] sm:text-3xl">
               {isEditMode ? "Edit Product" : "Add Product"}
             </h1>
-
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#71808a]">
-              {isEditMode
-                ? "Update product details, images, prices and inventory by size."
-                : "Create a new catalog item, set its available sizes and add product photos."}
-            </p>
-          </div>
-
-          <div className="inline-flex w-fit items-center gap-2 rounded-full border border-[#d8e5da] bg-[#edf6ee] px-3 py-1.5 text-xs font-medium text-[#557b5e]">
-            <PackagePlus size={15} />
-            {isEditMode ? "Editing catalog item" : "New catalog item"}
           </div>
         </header>
 
@@ -365,18 +363,10 @@ const AddProduct = () => {
               <h2 className="text-lg font-semibold text-[#263b4a]">
                 Product details
               </h2>
-
-              <p className="mt-1 text-sm text-[#839099]">
-                Enter the information customers will see in your store.
-              </p>
             </div>
 
             <div className="space-y-5">
-              <Field
-                label="Product name"
-                hint="Use a clear, searchable product name."
-                required
-              >
+              <Field label="Product name" required>
                 <input
                   value={inputs.title}
                   onChange={(event) => updateInput("title", event.target.value)}
@@ -388,11 +378,7 @@ const AddProduct = () => {
                 />
               </Field>
 
-              <Field
-                label="Description"
-                hint="Explain the benefits and important product details."
-                required
-              >
+              <Field label="Description" required>
                 <textarea
                   value={inputs.description}
                   onChange={(event) =>
@@ -405,10 +391,7 @@ const AddProduct = () => {
                 />
               </Field>
 
-              <Field
-                label="Ingredients"
-                hint="Add the full ingredient list as printed on the product packaging."
-              >
+              <Field label="Ingredients">
                 <textarea
                   value={inputs.ingredients}
                   onChange={(event) =>
@@ -432,20 +415,35 @@ const AddProduct = () => {
                   >
                     <option value="">Select category</option>
 
-                    {inputs.category && !categories.some((item) => item.name === inputs.category) && (
-                      <option value={inputs.category}>{inputs.category}</option>
-                    )}
+                    {inputs.category &&
+                      !categories.some(
+                        (item) => item.name === inputs.category,
+                      ) && (
+                        <option value={inputs.category}>
+                          {inputs.category}
+                        </option>
+                      )}
                     {categories.map((category) => (
                       <option key={category._id} value={category.name}>
                         {category.name}
                       </option>
                     ))}
                   </select>
-                  {categoriesLoading && <span className="mt-1 block text-xs text-[#839099]">Loading categories...</span>}
+                  {categoriesLoading && (
+                    <span className="mt-1 block text-xs text-[#839099]">
+                      Loading categories...
+                    </span>
+                  )}
                   {categoriesError && (
                     <span className="mt-1 block text-xs text-[#b55f5f]">
                       {categoriesError}{" "}
-                      <button type="button" onClick={fetchCategories} className="underline">Retry</button>
+                      <button
+                        type="button"
+                        onClick={fetchCategories}
+                        className="underline"
+                      >
+                        Retry
+                      </button>
                     </span>
                   )}
                 </Field>
@@ -458,9 +456,18 @@ const AddProduct = () => {
                     }
                     className="admin-input"
                     required
-                    disabled={!inputs.category || categoriesLoading || Boolean(categoriesError) || availableTypes.length === 0}
+                    disabled={
+                      !inputs.category ||
+                      categoriesLoading ||
+                      Boolean(categoriesError) ||
+                      availableTypes.length === 0
+                    }
                   >
-                    <option value="">{inputs.category ? "Select type" : "Select category first"}</option>
+                    <option value="">
+                      {inputs.category
+                        ? "Select type"
+                        : "Select category first"}
+                    </option>
 
                     {availableTypes.map((type) => (
                       <option key={type._id} value={type.name}>
@@ -468,12 +475,21 @@ const AddProduct = () => {
                       </option>
                     ))}
                   </select>
-                  {inputs.category && !categoriesLoading && !categoriesError && availableTypes.length === 0 && (
-                    <span className="mt-1.5 block text-xs text-[#839099]">
-                      No types in this category yet.{" "}
-                      <button type="button" onClick={() => navigate("/owner/add-category")} className="underline">Manage category types</button>
-                    </span>
-                  )}
+                  {inputs.category &&
+                    !categoriesLoading &&
+                    !categoriesError &&
+                    availableTypes.length === 0 && (
+                      <span className="mt-1.5 block text-xs text-[#839099]">
+                        No types in this category yet.{" "}
+                        <button
+                          type="button"
+                          onClick={() => navigate("/owner/add-category")}
+                          className="underline"
+                        >
+                          Manage category types
+                        </button>
+                      </span>
+                    )}
                 </Field>
               </div>
 
@@ -482,11 +498,6 @@ const AddProduct = () => {
                   <h3 className="text-sm font-semibold text-[#263b4a]">
                     Sizes, prices and inventory
                   </h3>
-
-                  <p className="mt-1 text-xs leading-5 text-[#839099]">
-                    Add a price and available stock quantity for each product
-                    size. Price is entered in thousands of VND.
-                  </p>
                 </div>
 
                 {/* Add variant form */}
@@ -508,7 +519,7 @@ const AddProduct = () => {
                     type="number"
                     min="1"
                     step="0.1"
-                    placeholder="Price"
+                    placeholder="Price, e.g. 5, 50"
                     aria-label="Price in thousands of VND"
                     className="admin-input"
                   />
@@ -547,10 +558,6 @@ const AddProduct = () => {
 
                       <p className="mt-2 text-sm font-medium text-[#76847c]">
                         No product variants added
-                      </p>
-
-                      <p className="mt-1 text-xs text-[#9aa49e]">
-                        Enter a size, price and quantity above.
                       </p>
                     </div>
                   ) : (
@@ -631,11 +638,6 @@ const AddProduct = () => {
                 <h2 className="text-base font-semibold text-[#263b4a]">
                   Product images
                 </h2>
-
-                <p className="mt-1 text-xs leading-5 text-[#839099]">
-                  Upload up to 4 clear images. The first image is used as the
-                  main product photo.
-                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -649,10 +651,6 @@ const AddProduct = () => {
                   />
                 ))}
               </div>
-
-              <p className="mt-3 text-xs leading-5 text-[#909ba2]">
-                JPG, PNG or WEBP. Maximum 5 MB per image.
-              </p>
             </section>
 
             <section className="rounded-2xl border border-[#e2e7e4] bg-white p-5 shadow-sm">
@@ -664,10 +662,6 @@ const AddProduct = () => {
                 <span>
                   <span className="block text-sm font-medium text-[#263b4a]">
                     Add to popular
-                  </span>
-
-                  <span className="mt-1 block text-xs leading-5 text-[#839099]">
-                    Feature this item in the popular products section.
                   </span>
                 </span>
 
