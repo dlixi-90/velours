@@ -1,6 +1,6 @@
 <div align="center">
 
-# VELOURS
+# VELOURS /Vơ-lua/
 ### Mỹ phẩm, nước hoa & trải nghiệm mua sắm cùng AI
 
 **Nền tảng thương mại điện tử kết hợp cửa hàng trực tuyến, thanh toán QR và trợ lý mua sắm AI trong cùng một trải nghiệm.**
