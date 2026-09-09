@@ -15,7 +15,7 @@
 ![Groq AI](https://img.shields.io/badge/Groq-AI-F55036)
 ![SePay](https://img.shields.io/badge/SePay-QR_Payment-00897B)
 
-[Giới thiệu](#gioi-thieu) · [Tính năng](#tinh-nang) · [Trợ lý AI](#tro-ly-ai) · [Công nghệ](#cong-nghe) · [Hướng phát triển](#huong-phat-trien)
+[Giới thiệu](#gioi-thieu) · [Tính năng](#tinh-nang) · [Trợ lý AI](#tro-ly-ai) · [Công nghệ](#cong-nghe)
 
 </div>
 
