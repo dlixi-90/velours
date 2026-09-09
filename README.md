@@ -26,7 +26,7 @@
 | Khám phá sản phẩm, chọn dung tích, đặt hàng và theo dõi đơn | Quản lý sản phẩm, tồn kho, danh mục, đơn hàng và doanh thu | AI tra cứu dữ liệu cửa hàng, đề xuất thay đổi giỏ và chờ khách xác nhận |
 
 <a id="gioi-thieu"></a>
-## ✨ Velours là gì?
+## ✨ Velours?
 
 **Velours** là website thương mại điện tử dành cho mỹ phẩm, nước hoa và sản phẩm chăm sóc cá nhân. Dự án kết nối các bước trong hành trình mua sắm: tìm hiểu sản phẩm, lựa chọn dung tích, quản lý giỏ hàng, chọn địa chỉ, thanh toán và theo dõi đơn.
 
