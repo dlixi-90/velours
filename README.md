@@ -61,7 +61,7 @@ Trang chủ giới thiệu sản phẩm mới, sản phẩm nổi bật và các
 | ↕️ **Sắp xếp theo giá** | Xem sản phẩm theo giá tăng dần hoặc giảm dần |
 | 📄 **Phân trang** | Chia danh sách sản phẩm thành các trang dễ theo dõi |
 | 🧴 **Chi tiết sản phẩm** | Xem hình ảnh, mô tả, thành phần nếu có và các dung tích |
-| 🏷️ **Giá theo dung tích** | Giá thay đổi theo lựa chọn của khách |
+| 🏷️ **Giá theo phân loại** | Giá thay đổi theo lựa chọn của khách |
 | 📦 **Tình trạng hàng** | Chỉ cho phép mua dung tích đang bán và còn tồn kho |
 | 💡 **Khám phá thêm** | Xem các nhóm sản phẩm liên quan và gợi ý kết hợp trên giao diện |
 | 📱 **Giao diện responsive** | Bố cục thích ứng với màn hình máy tính và thiết bị di động |
@@ -79,14 +79,14 @@ Giỏ hàng được lưu theo tài khoản để khách tiếp tục mua sắm 
 | 📍 **Địa chỉ nhận hàng** | Thêm địa chỉ và chọn lại địa chỉ đã lưu |
 | 🧾 **Tổng tiền rõ ràng** | Hiển thị tiền sản phẩm, phí vận chuyển và tổng thanh toán |
 | 📬 **Email xác nhận COD** | Nhận thông tin đơn và sản phẩm sau khi đặt COD thành công |
-| 🚚 **Theo dõi đơn** | Xem đơn COD và đơn QR đã ghi nhận thanh toán, cùng trạng thái xử lý |
+| 🚚 **Theo dõi đơn** | Xem đơn COD và đơn thanh toán QR đã ghi nhận thanh toán, cùng trạng thái xử lý |
 
 ---
 
 <a id="tro-ly-ai"></a>
 ## 🤖 Trợ lý mua sắm AI
 
-**Velours AI** bổ sung một cách tương tác với cửa hàng qua hội thoại. Khách có thể nêu nhu cầu, hỏi thông tin sản phẩm hoặc kiểm tra đơn mà không phải tự chuyển qua nhiều màn hình.
+**Velours AI** bổ sung một cách tương tác với cửa hàng thông qua hội thoại. Khách hàng có thể nêu nhu cầu, hỏi thông tin sản phẩm hoặc kiểm tra đơn mà không phải tự chuyển qua nhiều màn hình.
 
 Trợ lý gọi các công cụ truy vấn dữ liệu của cửa hàng để bổ sung thông tin cho câu trả lời. Kết quả có thể đi kèm thẻ sản phẩm, thông tin đơn, nội dung giỏ và đề xuất thao tác ngay trong khung chat.
 
@@ -99,9 +99,9 @@ Trợ lý gọi các công cụ truy vấn dữ liệu của cửa hàng để b
 | ⚖️ **So sánh sản phẩm** | “So sánh hai sản phẩm tôi vừa chọn.” | Đối chiếu thông tin từ các sản phẩm được xác định |
 | 🛒 **Kiểm tra giỏ** | “Giỏ hàng của tôi hiện có gì?” | Những mặt hàng của tài khoản đang đăng nhập |
 | 📦 **Tra cứu đơn** | “Cho tôi xem những đơn hàng gần đây.” | Danh sách đơn thuộc tài khoản hiện tại |
-| ➕ **Đề xuất thêm hàng** | “Thêm 1 sản phẩm này dung tích 100ml vào giỏ.” | Đề xuất để khách kiểm tra và xác nhận |
-| ✏️ **Đề xuất sửa giỏ** | “Đổi số lượng sản phẩm này thành 2.” | Đề xuất cập nhật số lượng |
-| 🗑️ **Đề xuất xóa hàng** | “Bỏ sản phẩm này khỏi giỏ giúp tôi.” | Đề xuất xóa dòng hàng được xác định |
+| ➕ **Đề xuất thêm sản phẩm** | “Thêm 1 sản phẩm này dung tích 100ml vào giỏ.” | Đề xuất để khách kiểm tra và xác nhận |
+| ✏️ **Đề xuất sửa giỏ hàng** | “Đổi số lượng sản phẩm này thành 2.” | Đề xuất cập nhật số lượng |
+| 🗑️ **Đề xuất xóa sản phẩm** | “Bỏ sản phẩm này khỏi giỏ giúp tôi.” | Đề xuất xóa dòng hàng được xác định |
 
 Các ví dụ phụ thuộc vào sản phẩm và dung tích thực tế trong cửa hàng. Khi chưa đủ thông tin, trợ lý được hướng dẫn hỏi lại để xác định lựa chọn của khách.
 
@@ -115,8 +115,6 @@ flowchart LR
     D -->|Đồng ý| E[Kiểm tra lại và cập nhật giỏ]
     D -->|Hủy| F[Giữ nguyên giỏ]
 ```
-
-Các công cụ đề xuất chỉ chuẩn bị hành động. Giỏ hàng được cập nhật sau khi khách bấm xác nhận và hệ thống kiểm tra lại sản phẩm, dung tích, số lượng. AI không có công cụ tự thanh toán hoặc tạo đơn hàng.
 
 ### Phạm vi truy cập của trợ lý
 
@@ -171,13 +169,13 @@ flowchart TD
 - Hệ thống kiểm tra mã giao dịch để hạn chế ghi nhận lặp khi nhận lại webhook.
 - Với đơn đã được xử lý hết hạn nhưng nhận tiền muộn, hệ thống kiểm tra lại hàng; trường hợp không đáp ứng được chuyển sang trạng thái cần xem xét.
 
-Hiện việc giải phóng các phiên hết hạn diễn ra khi có yêu cầu liên quan đến đặt hàng hoặc kiểm tra thanh toán; chưa có tác vụ nền quét độc lập. Email xác nhận tự động hiện được tích hợp cho COD.
+Hiện việc giải phóng các phiên hết hạn diễn ra khi có yêu cầu liên quan đến đặt hàng hoặc kiểm tra thanh toán; chưa có tác vụ nền quét độc lập. Email xác nhận tự động được tích hợp cho COD.
 
 ### Phí vận chuyển
 
 | Giá trị tiền hàng | Phí vận chuyển |
 | --- | --- |
-| Dưới 1.000.000 VNĐ, giỏ có hàng | 30.000 VNĐ |
+| Dưới 1.000.000 VNĐ, giỏ có sản phẩm | 30.000 VNĐ |
 | Từ 1.000.000 VNĐ | Miễn phí |
 
 ### Trạng thái đơn hàng
@@ -190,9 +188,9 @@ Hiện việc giải phóng các phiên hết hạn diễn ra khi có yêu cầu
 ---
 
 <a id="quan-tri"></a>
-## 📊 Không gian quản trị cửa hàng
+## 📊 Quản trị cửa hàng
 
-Velours tập trung các công việc quản lý vào khu vực riêng dành cho chủ cửa hàng. Hệ thống hỗ trợ nhiều tài khoản quản trị trong mô hình một cửa hàng.
+Velours tập trung các công việc quản lý ở trang riêng dành cho chủ cửa hàng. Hệ thống hỗ trợ nhiều tài khoản quản trị trong mô hình một cửa hàng.
 
 ### Dashboard và theo dõi bán hàng
 
@@ -227,7 +225,7 @@ Xóa mềm giúp ngừng hiển thị và bán một sản phẩm, đồng thờ
 
 | Điểm thiết kế | Cách ứng dụng trong Velours | Ý nghĩa |
 | --- | --- | --- |
-| **Tồn kho theo dung tích** | Giá, số lượng và trạng thái bán riêng cho mỗi biến thể | Phù hợp đặc thù mỹ phẩm, nước hoa |
+| **Tồn kho theo phân loại** | Giá, số lượng và trạng thái bán riêng cho mỗi biến thể | Phù hợp đặc thù mỹ phẩm, nước hoa |
 | **Tính tiền phía máy chủ** | Giá đơn lấy từ dữ liệu sản phẩm và quy tắc vận chuyển | Giữ cách tính tiền nhất quán khi đặt hàng |
 | **Giao dịch dữ liệu** | Tạo đơn và cập nhật tồn kho trong transaction | Giữ các thay đổi liên quan nhất quán |
 | **Giữ hàng khi chờ QR** | Tạm giữ số lượng trong phiên thanh toán | Gắn việc chờ tiền với lượng hàng có thể đáp ứng |
@@ -323,28 +321,6 @@ Các bài kiểm thử tập trung vào những phần ảnh hưởng trực ti�
 | **Quota AI** | Giới hạn lượt dùng và xử lý khi dịch vụ lưu quota gặp lỗi |
 
 Lần kiểm tra cục bộ gần nhất trong quá trình cập nhật tài liệu ghi nhận **64/64 bài kiểm thử backend đạt**, cùng kiểm tra lint và build frontend thành công. Bộ test có sử dụng mock/stub; kết quả này chưa thay thế kiểm thử toàn bộ luồng với các dịch vụ bên ngoài hoặc đánh giá độ chính xác câu trả lời AI.
-
----
-
-<a id="huong-phat-trien"></a>
-## 🚀 Hướng phát triển
-
-Velours hiện tập trung vào mua sắm, quản trị cửa hàng, thanh toán COD/QR và trợ lý AI. Những hướng mở rộng tiếp theo gồm:
-
-| Hướng mở rộng | Giá trị dự kiến |
-| --- | --- |
-| ⭐ **Đánh giá và nhận xét** | Bổ sung phản hồi từ người đã mua hàng |
-| ❤️ **Danh sách yêu thích** | Giúp khách lưu sản phẩm quan tâm |
-| 🎟️ **Ưu đãi và mã giảm giá** | Hỗ trợ chương trình khuyến mãi |
-| 🚚 **Tích hợp vận chuyển** | Theo dõi mã vận đơn, tính phí theo địa chỉ |
-| ↩️ **Đổi trả và hoàn tiền** | Hoàn thiện quy trình sau mua |
-| 📝 **Blog và liên hệ hoàn chỉnh** | Quản lý bài viết và tiếp nhận yêu cầu hỗ trợ |
-| 💬 **Lịch sử hội thoại** | Tiếp tục cuộc trao đổi theo lựa chọn của người dùng |
-| ⏱️ **Xử lý tác vụ nền** | Chủ động dọn phiên QR hết hạn và gửi email qua hàng đợi |
-| 🔎 **Tìm kiếm cho catalog lớn** | Lọc và phân trang trên máy chủ |
-| 🧪 **Kiểm thử mở rộng** | Bổ sung E2E, kiểm thử đồng thời và bộ đánh giá AI |
-
-Các mục trên là định hướng, chưa được mô tả như chức năng đã hoàn thành. Blog hiện dùng nội dung mẫu, Contact mới có giao diện; các đánh giá mẫu và gợi ý sản phẩm chưa phải hệ thống đánh giá khách hàng hoặc mô hình đề xuất được huấn luyện riêng.
 
 ---
 
