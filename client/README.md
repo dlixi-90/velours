@@ -1,25 +1,14 @@
-# Velours — Frontend
+# Velours — Giao diện cửa hàng
 
-Giao diện React của website thương mại điện tử Velours, xây dựng bằng Vite và Tailwind CSS.
+Frontend của Velours kết nối trải nghiệm khám phá mỹ phẩm, nước hoa và sản phẩm chăm sóc cá nhân với giỏ hàng, thanh toán và trợ lý mua sắm AI.
 
-Tài liệu đầy đủ về dự án, kiến trúc, chức năng, biến môi trường, API, kiểm thử và triển khai nằm tại **[README chính](../README.md)**.
+| Không gian | Trải nghiệm |
+| --- | --- |
+| Cửa hàng | Trang chủ, tìm kiếm, bộ lọc và chi tiết sản phẩm theo dung tích |
+| Mua sắm | Giỏ hàng theo tài khoản, địa chỉ nhận hàng, COD và QR |
+| Trợ lý AI | Hội thoại, thẻ sản phẩm, tra cứu đơn và xác nhận đề xuất thay đổi giỏ |
+| Quản trị | Dashboard, sản phẩm, danh mục, tồn kho và đơn hàng |
 
-## Chạy frontend
+Giao diện được xây dựng bằng React, Vite và Tailwind CSS, kết hợp Clerk cho xác thực và Recharts cho biểu đồ bán hàng.
 
-Sau khi cài dependency và cấu hình `client/.env` theo [hướng dẫn cài đặt](../README.md#cai-dat), chạy trong thư mục `client`:
-
-```bash
-npm run dev
-```
-
-Frontend kết nối backend qua `VITE_BACKEND_URL` để sử dụng các chức năng dữ liệu.
-
-## Các lệnh khác
-
-```bash
-npm run lint
-npm run build
-npm run preview
-```
-
-Trên PowerShell, nếu `npm.ps1` bị chặn, thay `npm` bằng `npm.cmd`.
+Xem **[giới thiệu đầy đủ về Velours](../README.md)** để tìm hiểu tính năng, luồng hoạt động, công nghệ và hướng phát triển của dự án.
