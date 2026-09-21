@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { useNavigate } from "react-router-dom";
@@ -46,11 +47,30 @@ const getRequestErrorMessage = (error, fallbackMessage) => {
 
 export const AppContextProvider = ({ children }) => {
   const [products, setProducts] = useState([]);
+  const [popularProducts, setPopularProducts] = useState([]);
+  const [popularProductsLoading, setPopularProductsLoading] = useState(true);
+  const [popularProductsError, setPopularProductsError] = useState("");
+  const popularRequestRef = useRef(null);
+  const [isQrPaymentActive, setIsQrPaymentActive] = useState(false);
   const [categories, setCategories] = useState([]);
+  // Preserve File objects as well as text while navigating between admin forms.
+  const [productDrafts, setProductDrafts] = useState({});
+  const saveProductDraft = useCallback((key, draft) => {
+    setProductDrafts((current) => ({ ...current, [key]: draft }));
+  }, []);
+  const clearProductDraft = useCallback((key) => {
+    setProductDrafts((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, []);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [categoriesError, setCategoriesError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [cartItems, setCartItems] = useState({});
+  const cartWritesRef = useRef(0);
+  const changingSizeRef = useRef(false);
   const [method, setMethod] = useState("COD");
   const [isOwner, setIsOwner] = useState(null);
   const navigate = useNavigate();
@@ -97,6 +117,28 @@ export const AppContextProvider = ({ children }) => {
     }
   }, []);
 
+  const fetchPopularProducts = useCallback(() => {
+    if (popularRequestRef.current) return popularRequestRef.current;
+    popularRequestRef.current = (async () => {
+      try {
+        const { data } = await axios.get("/api/products/popular");
+        if (!data.success) {
+          throw new Error(data.message || "Unable to load popular products");
+        }
+        setPopularProducts(data.products);
+        setPopularProductsError("");
+      } catch (error) {
+        setPopularProductsError(
+          getRequestErrorMessage(error, "Unable to load popular products"),
+        );
+      } finally {
+        setPopularProductsLoading(false);
+        popularRequestRef.current = null;
+      }
+    })();
+    return popularRequestRef.current;
+  }, []);
+
   const fetchCategories = useCallback(async () => {
     setCategoriesLoading(true);
     setCategoriesError("");
@@ -112,10 +154,12 @@ export const AppContextProvider = ({ children }) => {
   }, []);
 
   const replaceCategory = (category) => {
-    setCategories((current) =>
-      [...current.filter((item) => item._id !== category._id), category]
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    );
+    setCategories((current) => {
+      const exists = current.some((item) => item._id === category._id);
+      return exists
+        ? current.map((item) => item._id === category._id ? category : item)
+        : [category, ...current];
+    });
   };
 
   const removeCategory = (categoryId) => {
@@ -139,6 +183,10 @@ export const AppContextProvider = ({ children }) => {
     quantity = 1,
     onOptimisticSuccess,
   ) => {
+    if (changingSizeRef.current) {
+      toast.error("Please wait for the size change to finish");
+      return { success: false };
+    }
     const addedQuantity = Number(quantity);
 
     if (!size) {
@@ -190,6 +238,7 @@ export const AppContextProvider = ({ children }) => {
       return { success: true, quantity: nextQuantity };
     }
 
+    cartWritesRef.current += 1;
     try {
       const { data } = await axios.post(
         "/api/cart/add",
@@ -236,6 +285,8 @@ export const AppContextProvider = ({ children }) => {
       );
       toast.error(message);
       return { success: false, message };
+    } finally {
+      cartWritesRef.current -= 1;
     }
   };
 
@@ -252,6 +303,10 @@ export const AppContextProvider = ({ children }) => {
 
   // Update Cart Quantity
   const updateQuantity = async (itemId, size, quantity) => {
+    if (changingSizeRef.current) {
+      toast.error("Please wait for the size change to finish");
+      return { success: false };
+    }
     const nextQuantity = Number(quantity);
 
     if (!Number.isInteger(nextQuantity) || nextQuantity < 0) {
@@ -294,6 +349,7 @@ export const AppContextProvider = ({ children }) => {
       return { success: true, quantity: nextQuantity };
     }
 
+    cartWritesRef.current += 1;
     try {
       const { data } = await axios.post(
         "/api/cart/update",
@@ -338,6 +394,51 @@ export const AppContextProvider = ({ children }) => {
       const message = getRequestErrorMessage(error, "Unable to update cart");
       toast.error(message);
       return { success: false, message };
+    } finally {
+      cartWritesRef.current -= 1;
+    }
+  };
+
+  const changeCartSize = async (itemId, fromSize, toSize) => {
+    if (changingSizeRef.current || cartWritesRef.current > 0) {
+      toast.error("Please wait for the cart update to finish");
+      return { success: false };
+    }
+    const fromQuantity = Number(cartItems[itemId]?.[fromSize] ?? 0);
+    const toQuantity = Number(cartItems[itemId]?.[toSize] ?? 0);
+    const product = products.find((item) => item._id === itemId);
+    if (fromSize === toSize) return { success: true };
+    changingSizeRef.current = true;
+    try {
+      if (!product?.sizes?.includes(toSize) || !isSizeAvailable(product, toSize)) {
+        throw new Error("This product size is unavailable");
+      }
+      let quantity = fromQuantity + toQuantity;
+      if (fromQuantity < 1 || !Number.isSafeInteger(quantity)) {
+        throw new Error("Invalid cart quantity");
+      }
+      if (quantity > getSizeQuantity(product, toSize)) {
+        throw new Error(`Only ${getSizeQuantity(product, toSize)} items are available for size ${toSize}`);
+      }
+      if (user) {
+        const { data } = await axios.post(
+          "/api/cart/change-size",
+          { itemId, fromSize, toSize, fromQuantity, toQuantity },
+          { headers: { Authorization: `Bearer ${await getToken()}` } },
+        );
+        if (!data.success) throw new Error(data.message || "Unable to change size");
+        quantity = data.quantity;
+      }
+      setCartItems((current) => setCartItemQuantity(
+        setCartItemQuantity(current, itemId, fromSize, 0), itemId, toSize, quantity,
+      ));
+      return { success: true };
+    } catch (error) {
+      if (error.response?.status === 409) await getUser();
+      toast.error(getRequestErrorMessage(error, "Unable to change size"));
+      return { success: false };
+    } finally {
+      changingSizeRef.current = false;
     }
   };
 
@@ -361,6 +462,7 @@ export const AppContextProvider = ({ children }) => {
       queueMicrotask(() => {
         setIsOwner(false);
         setCartItems({});
+        setProductDrafts({});
       });
       return undefined;
     }
@@ -382,6 +484,15 @@ export const AppContextProvider = ({ children }) => {
   }, [fetchCategories]);
 
   const value = {
+    productDrafts,
+    saveProductDraft,
+    clearProductDraft,
+    popularProducts,
+    popularProductsLoading,
+    popularProductsError,
+    fetchPopularProducts,
+    isQrPaymentActive,
+    setIsQrPaymentActive,
     navigate,
     user,
     products,
@@ -404,6 +515,7 @@ export const AppContextProvider = ({ children }) => {
     addToCart,
     getCartCount,
     updateQuantity,
+    changeCartSize,
     getCartAmount,
     isOwner,
     setIsOwner,

@@ -464,9 +464,17 @@ const ListProduct = () => {
                             className={`${internalBorder} px-4 py-4 align-middle`}
                           >
                             {size ? (
-                              <span className="inline-flex rounded-md border border-[#dfe5e8] bg-[#f8faf9] px-2.5 py-1 text-xs font-semibold text-[#52616b]">
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/owner/edit-product/${product._id}`, { state: { editSize: size } })}
+                                disabled={isProductUpdating || deletingProductId === product._id}
+                                aria-label={`Edit size ${size} for ${product.title}`}
+                                title="Edit size"
+                                className="inline-flex items-center gap-2 rounded-md border border-[#dfe5e8] bg-[#f8faf9] px-2.5 py-1 text-xs font-semibold text-[#52616b] hover:bg-[#edf5ef] disabled:opacity-50"
+                              >
                                 {size}
-                              </span>
+                                <Pencil size={12} />
+                              </button>
                             ) : (
                               <span className="text-xs text-[#9aa3aa]">
                                 No size

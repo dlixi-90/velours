@@ -192,7 +192,7 @@ const CartTotal = ({
         <button
           type="button"
           onClick={onCheckout}
-          disabled={selectedCount === 0}
+          disabled={selectedCount === 0 || isSubmitting}
           className="btn-dark mt-8 w-full !rounded-md disabled:cursor-not-allowed disabled:opacity-50"
         >
           Proceed to Checkout

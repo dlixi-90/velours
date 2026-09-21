@@ -1,9 +1,12 @@
 import { v2 as cloudinary } from "cloudinary";
 import Product from "../models/Product.js";
 import { validateProductCategory } from "../services/categoryService.js";
-import { isValidObjectId } from "mongoose";
+import mongoose, { isValidObjectId } from "mongoose";
+import Order from "../models/Order.js";
+import { isValidSizeName, getSizeRenames, buildCartSizeRename } from "../utils/productVariants.js";
 import User from "../models/User.js";
 import { unlink } from "node:fs/promises";
+import { getPopularProducts } from "../services/popularProducts.js";
 import {
   getSizeQuantity,
   hasAnyEnabledSize,
@@ -46,13 +49,12 @@ const normalizeProductData = (productData, currentProduct = null) => {
       : "";
   const category =
     typeof productData.category === "string" ? productData.category.trim() : "";
-  const type = typeof productData.type === "string" ? productData.type.trim() : "";
   const rawSizes = Array.isArray(productData.sizes) ? productData.sizes : [];
   const sizes = rawSizes.map((size) =>
     typeof size === "string" ? size.trim() : "",
   );
 
-  if (!title || !description || !category || !type || sizes.length === 0) {
+  if (!title || !description || !category || sizes.length === 0) {
     throw new ProductRequestError("Invalid product data");
   }
 
@@ -61,21 +63,14 @@ const normalizeProductData = (productData, currentProduct = null) => {
     description.length > 5000 ||
     ingredients.length > 5000 ||
     category.length > 100 ||
-    type.length > 100 ||
     sizes.length > 50
   ) {
     throw new ProductRequestError("Product data is too long");
   }
 
   if (
-    sizes.some(
-      (size) =>
-        !size ||
-        size.length > 50 ||
-        size.includes(".") ||
-        size.startsWith("$"),
-    ) ||
-    new Set(sizes).size !== sizes.length
+    sizes.some((size) => !isValidSizeName(size)) ||
+    new Set(sizes.map((size) => size.toLowerCase())).size !== sizes.length
   ) {
     throw new ProductRequestError("Product sizes must be unique and valid");
   }
@@ -83,6 +78,7 @@ const normalizeProductData = (productData, currentProduct = null) => {
   const price = {};
   const stockBySize = {};
   const inStockBySize = {};
+  const renames = getSizeRenames(productData, currentProduct, sizes);
 
   for (const size of sizes) {
     const productPrice = Number(productData.price?.[size]);
@@ -100,7 +96,8 @@ const normalizeProductData = (productData, currentProduct = null) => {
       throw new ProductRequestError(`Invalid quantity for size ${size}`);
     }
 
-    const savedStatus = currentProduct?.inStockBySize?.[size];
+    const originalSize = renames.find((rename) => rename.to === size)?.from || size;
+    const savedStatus = currentProduct?.inStockBySize?.[originalSize];
 
     price[size] = productPrice;
     stockBySize[size] = quantity;
@@ -114,8 +111,7 @@ const normalizeProductData = (productData, currentProduct = null) => {
     description,
     ingredients,
     category,
-    type,
-    popular: Boolean(productData.popular),
+    popular: Boolean(productData.popular ?? currentProduct?.popular),
     sizes,
     price,
     stockBySize,
@@ -186,6 +182,20 @@ export const listProduct = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Unable to load products",
+    });
+  }
+};
+
+export const listPopularProducts = async (_req, res) => {
+  try {
+    const products = await getPopularProducts();
+    res.set("Cache-Control", "no-store");
+    return res.json({ success: true, products });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load popular products",
     });
   }
 };
@@ -352,6 +362,11 @@ export const updateProduct = async (req, res) => {
 
     const rawProductData = parseProductData(req.body.productData);
     const productData = normalizeProductData(rawProductData, currentProduct);
+    const renames = getSizeRenames(rawProductData, currentProduct, productData.sizes);
+    if (rawProductData.expectedUpdatedAt &&
+        new Date(rawProductData.expectedUpdatedAt).getTime() !== new Date(currentProduct.updatedAt).getTime()) {
+      throw new ProductRequestError("Product changed. Reload it before saving to avoid overwriting stock changes.", 409);
+    }
     await validateProductCategory(productData);
     const existingImages = Array.isArray(rawProductData.existingImages)
       ? rawProductData.existingImages
@@ -384,18 +399,36 @@ export const updateProduct = async (req, res) => {
       (size) => productData.inStockBySize[size],
     );
 
-    const updatedProduct = await Product.findByIdAndUpdate(
-      productId,
-      {
-        ...productData,
-        inStock: hasEnabledSize ? Boolean(currentProduct.inStock) : false,
-        images,
-      },
-      {
-        new: true,
-        runValidators: true,
-      },
-    );
+    const updatedProduct = await mongoose.connection.transaction(async (session) => {
+      // Awaiting QR orders still refer to the old size when releasing reserved stock.
+      const removedSizes = currentProduct.sizes.filter((size) => !productData.sizes.includes(size));
+      const changedSizes = [...new Set([...removedSizes, ...renames.map(({ from }) => from)])];
+      if (changedSizes.length && await Order.exists({
+        paymentMethod: "QR",
+        isPaid: false,
+        status: "Awaiting Payment",
+        items: { $elemMatch: { product: productId, size: { $in: changedSizes } } },
+      }).session(session)) {
+        throw new ProductRequestError("This size is reserved by a pending QR payment. Try again after the payment finishes or is cancelled.", 409);
+      }
+      const updated = await Product.findOneAndUpdate(
+        { _id: productId, isDeleted: { $ne: true }, updatedAt: currentProduct.updatedAt },
+        {
+          ...productData,
+          inStock: hasEnabledSize ? Boolean(currentProduct.inStock) : false,
+          images,
+        },
+        { new: true, runValidators: true, session },
+      );
+      if (!updated) {
+        throw new ProductRequestError("Product changed. Reload it before saving.", 409);
+      }
+      if (renames.length) {
+        const { filter, pipeline } = buildCartSizeRename(productId, renames);
+        await User.updateMany(filter, pipeline, { session, updatePipeline: true });
+      }
+      return updated;
+    });
 
     return res.json({
       success: true,
@@ -407,7 +440,7 @@ export const updateProduct = async (req, res) => {
     return res.status(error.statusCode || 500).json({
       success: false,
       message:
-        error.statusCode === 400 ? error.message : "Unable to update product",
+        error.statusCode ? error.message : "Unable to update product",
     });
   } finally {
     await cleanupUploadedFiles(req.files);

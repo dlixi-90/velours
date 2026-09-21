@@ -7,6 +7,7 @@ const MAX_ADD_QUANTITY = 10;
 const isSafePathSegment = (value) =>
   typeof value === "string" &&
   Boolean(value.trim()) &&
+  !["__proto__", "constructor", "prototype"].includes(value) &&
   !value.includes(".") &&
   !value.startsWith("$");
 
@@ -134,6 +135,62 @@ export const addToCart = async (req, res) => {
       success: false,
       message: "Unable to add item to cart",
     });
+  }
+};
+
+// Move a whole cart line in one write, merging an existing destination size.
+export const changeCartSize = async (req, res) => {
+  try {
+    const { itemId, fromSize, toSize, fromQuantity, toQuantity } = req.body;
+    const { userId } = req.auth();
+    if (!isObjectIdOrHexString(itemId) ||
+        !isSafePathSegment(fromSize) || !isSafePathSegment(toSize) ||
+        fromSize === toSize ||
+        !Number.isSafeInteger(fromQuantity) || fromQuantity < 1 ||
+        !Number.isSafeInteger(toQuantity) || toQuantity < 0) {
+      return res.status(400).json({ success: false, message: "Invalid size change" });
+    }
+
+    const product = await findAvailableProduct(itemId);
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+    const sizeError = validateProductSize(product, toSize);
+    if (sizeError) {
+      return res.status(400).json({ success: false, message: sizeError });
+    }
+    const quantity = fromQuantity + toQuantity;
+    const stock = getSizeQuantity(product, toSize);
+    if (!Number.isSafeInteger(quantity) || quantity > stock) {
+      return res.status(400).json({
+        success: false,
+        message: `Only ${stock} items are available for size ${toSize}`,
+      });
+    }
+
+    const fromPath = `cartData.${itemId}.${fromSize}`;
+    const toPath = `cartData.${itemId}.${toSize}`;
+    const updatedUser = await User.findOneAndUpdate(
+      {
+        _id: userId,
+        [fromPath]: fromQuantity,
+        ...(toQuantity === 0
+          ? { $or: [{ [toPath]: { $exists: false } }, { [toPath]: 0 }] }
+          : { [toPath]: toQuantity }),
+      },
+      { $unset: { [fromPath]: "" }, $set: { [toPath]: quantity } },
+      { new: true },
+    );
+    if (!updatedUser) {
+      return res.status(409).json({
+        success: false,
+        message: "Your cart changed. Please try again with the updated cart.",
+      });
+    }
+    return res.json({ success: true, quantity, message: "Size updated" });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: "Unable to change size" });
   }
 };
 

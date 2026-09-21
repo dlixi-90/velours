@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useAppContext } from "../context/AppContext";
 import { removePurchasedItems } from "../utils/cartSelection";
@@ -14,8 +14,15 @@ const formatRemainingTime = (seconds) => {
 };
 
 const QrPaymentStatus = ({ initialOrder, onExpired, onCancelled }) => {
-  const { axios, getToken, navigate, setCartItems, fetchProducts } =
-    useAppContext();
+  const {
+    axios,
+    getToken,
+    navigate,
+    setCartItems,
+    fetchProducts,
+    setIsQrPaymentActive,
+    fetchPopularProducts,
+  } = useAppContext();
 
   const [order, setOrder] = useState(initialOrder);
   const [isChecking, setIsChecking] = useState(false);
@@ -27,6 +34,12 @@ const QrPaymentStatus = ({ initialOrder, onExpired, onCancelled }) => {
   const hasSyncedCartRef = useRef(false);
   const cancelRequestRef = useRef(false);
   const qrHistoryEntryRef = useRef(false);
+  const isAwaitingPayment = order.status === "Awaiting Payment" && !order.isPaid;
+
+  useLayoutEffect(() => {
+    setIsQrPaymentActive(isAwaitingPayment);
+    return () => setIsQrPaymentActive(false);
+  }, [isAwaitingPayment, setIsQrPaymentActive]);
 
   const checkPayment = useCallback(
     async (showError = false) => {
@@ -60,6 +73,7 @@ const QrPaymentStatus = ({ initialOrder, onExpired, onCancelled }) => {
               removePurchasedItems(currentCart, initialOrder.items),
             );
             hasSyncedCartRef.current = true;
+            fetchPopularProducts();
           }
 
           if (!hasShownSuccess) {
@@ -90,6 +104,7 @@ const QrPaymentStatus = ({ initialOrder, onExpired, onCancelled }) => {
     [
       axios,
       fetchProducts,
+      fetchPopularProducts,
       getToken,
       initialOrder._id,
       initialOrder.items,
@@ -200,6 +215,7 @@ const QrPaymentStatus = ({ initialOrder, onExpired, onCancelled }) => {
   ]);
 
   useEffect(() => {
+    if (!isAwaitingPayment) return undefined;
     if (!qrHistoryEntryRef.current) {
       window.history.pushState(
         { ...window.history.state, qrPayment: initialOrder._id },
@@ -216,7 +232,7 @@ const QrPaymentStatus = ({ initialOrder, onExpired, onCancelled }) => {
     window.addEventListener("popstate", handleBrowserBack);
 
     return () => window.removeEventListener("popstate", handleBrowserBack);
-  }, [cancelPayment, initialOrder._id, onCancelled]);
+  }, [cancelPayment, initialOrder._id, isAwaitingPayment, onCancelled]);
 
   if (order.status === "Payment Review") {
     return (

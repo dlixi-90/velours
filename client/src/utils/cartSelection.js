@@ -1,5 +1,17 @@
 export const getCartItemKey = (productId, size) => `${productId}::${size}`;
 
+export const changeSizeSelection = (deselected, productId, fromSize, toSize, targetExists) => {
+  const sourceKey = getCartItemKey(productId, fromSize);
+  const targetKey = getCartItemKey(productId, toSize);
+  // A merge must not silently add previously unselected units to checkout.
+  const keepDeselected = deselected.has(sourceKey) || (targetExists && deselected.has(targetKey));
+  const next = new Set(deselected);
+  next.delete(sourceKey);
+  next.delete(targetKey);
+  if (keepDeselected) next.add(targetKey);
+  return next;
+};
+
 export const removePurchasedItems = (cartData, purchasedItems) => {
   const nextCartData = structuredClone(cartData);
 

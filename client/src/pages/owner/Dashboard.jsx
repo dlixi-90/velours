@@ -13,6 +13,7 @@ import {
 import toast from "react-hot-toast";
 import { useAppContext } from "../../context/AppContext";
 import { formatThousandsVnd } from "../../utils/money";
+import { usePopularProducts } from "../../hooks/usePopularProducts";
 
 const ORDER_STATUSES = ["Order Placed", "Packing", "Shipping", "Delivery"];
 
@@ -67,6 +68,12 @@ const buildMonthlyData = (orders) => {
 
 const Dashboard = () => {
   const { user, currency, axios, getToken } = useAppContext();
+  const {
+    popularProducts,
+    popularProductsLoading,
+    popularProductsError,
+    fetchPopularProducts,
+  } = usePopularProducts();
   const [dashboardData, setDashboardData] = useState({
     orders: [],
     totalOrders: 0,
@@ -104,7 +111,7 @@ const Dashboard = () => {
       );
 
       if (data.success) {
-        await getDashboardData();
+        await Promise.all([getDashboardData(), fetchPopularProducts()]);
         toast.success(data.message);
       } else {
         toast.error(data.message);
@@ -143,37 +150,6 @@ const Dashboard = () => {
   );
   const monthlyData = useMemo(() => buildMonthlyData(orders), [orders]);
 
-  const popularProducts = useMemo(() => {
-    const productsById = new Map();
-
-    orders.forEach((order) => {
-      (order.items || []).forEach((item) => {
-        const product =
-          item.product && typeof item.product === "object" ? item.product : {};
-        const key = product._id || item.product || item.title;
-
-        if (!key) return;
-
-        const currentProduct = productsById.get(key) || {
-          name: item.title || product.title || "Unavailable product",
-          image: item.image || product.images?.[0],
-          quantity: 0,
-          revenue: 0,
-        };
-        const quantity = Number(item.quantity) || 0;
-        const price = Number(item.unitPrice ?? product.price?.[item.size]) || 0;
-
-        currentProduct.quantity += quantity;
-        currentProduct.revenue += price * quantity;
-        productsById.set(key, currentProduct);
-      });
-    });
-
-    return [...productsById.values()]
-      .sort((first, second) => second.quantity - first.quantity)
-      .slice(0, 5);
-  }, [orders]);
-
   return (
     <main className="m-1 h-[97vh] overflow-y-auto rounded-xl bg-primary px-3 py-6 shadow sm:m-3 sm:px-5 md:px-8 lg:w-11/12 xl:py-8">
       <div className="mx-auto w-full max-w-[1120px]">
@@ -188,8 +164,8 @@ const Dashboard = () => {
           </div>
         </header>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <DashboardCard className="md:col-span-2 xl:col-span-2">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <DashboardCard className="xl:col-span-2">
             <div className="flex w-full items-center justify-between gap-3">
               <h2 className="text-lg font-medium text-[#263b4a]">
                 Total Revenue
@@ -237,45 +213,28 @@ const Dashboard = () => {
           </DashboardCard>
 
           <DashboardCard>
-            <CardTitle title="Todo List" />
-            <div className="mt-4 flex flex-col gap-3">
-              {[
-                "Review new orders",
-                "Update inventory",
-                "Prepare weekly report",
-                "Contact customers",
-              ].map((task, index) => (
-                <label
-                  key={task}
-                  className="flex items-center gap-3 rounded-lg border border-[#edf0f2] p-3 text-sm text-[#69747e]"
-                >
-                  <input
-                    type="checkbox"
-                    defaultChecked={index < 2}
-                    className="h-4 w-4 accent-[#263b4a]"
-                  />
-                  <span className={index < 2 ? "line-through opacity-60" : ""}>
-                    {task}
-                  </span>
-                </label>
-              ))}
-            </div>
-          </DashboardCard>
-
-          <DashboardCard>
             <CardTitle title="Popular Products" />
+            <p className="mt-2 text-xs text-[#8b949c]">Top 4 by units sold · All time</p>
+            {popularProductsError && (
+              <p role="alert" className="mt-3 text-sm text-red-600">
+                {popularProductsError}{" "}
+                <button type="button" onClick={fetchPopularProducts} className="underline">
+                  Retry
+                </button>
+              </p>
+            )}
             <div className="mt-4 flex flex-col gap-2">
-              {popularProducts.map((product, index) => (
+              {popularProducts.map((product) => (
                 <div
-                  key={`${product.name}-${index}`}
+                  key={product._id}
                   className="flex items-center justify-between gap-3 rounded-lg border border-[#edf0f2] p-3"
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[#f2f5f3]">
-                      {product.image ? (
+                      {product.images?.[0] ? (
                         <img
-                          src={product.image}
-                          alt={product.name}
+                          src={product.images[0]}
+                          alt={product.title}
                           className="h-full w-full object-contain"
                         />
                       ) : (
@@ -284,19 +243,19 @@ const Dashboard = () => {
                     </div>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-[#263b4a]">
-                        {product.name}
+                        {product.title}
                       </p>
                       <p className="text-xs text-[#8b949c]">
-                        {product.quantity} sold
+                        {product.soldQuantity} sold
                       </p>
                     </div>
                   </div>
-                  <span className="shrink-0 text-xs font-semibold text-[#263b4a]">
-                    {formatThousandsVnd(product.revenue, currency)}
-                  </span>
                 </div>
               ))}
-              {!popularProducts.length && <EmptyState text="No products yet" />}
+              {popularProductsLoading && <p role="status">Loading popular products...</p>}
+              {!popularProductsLoading && !popularProductsError && !popularProducts.length && (
+                <EmptyState text="No sales yet" />
+              )}
             </div>
           </DashboardCard>
         </div>

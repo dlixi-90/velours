@@ -20,8 +20,8 @@ const sendError = (res, error) => {
   });
 };
 
-const readName = (req, label = "Category") => {
-  const name = normalizeCategoryName(req.body?.name);
+const readName = (req, label = "Category", field = "name") => {
+  const name = normalizeCategoryName(req.body?.[field]);
   if (!name || name.length > 100) {
     throw Object.assign(new Error(`${label} name must contain 1 to 100 characters`), {
       statusCode: 400,
@@ -32,7 +32,9 @@ const readName = (req, label = "Category") => {
 
 export const listCategories = async (_req, res) => {
   try {
-    const categories = await Category.find({}).select("name types._id types.name").sort({ name: 1 });
+    const categories = await Category.find({})
+      .select("name types._id types.name")
+      .sort({ createdAt: -1, _id: -1 });
     return res.json({ success: true, categories });
   } catch (error) {
     console.error(error);
@@ -43,7 +45,12 @@ export const listCategories = async (_req, res) => {
 export const createCategory = async (req, res) => {
   try {
     const name = readName(req);
-    const category = await Category.create({ name, nameKey: name.toLowerCase() });
+    const typeName = readName(req, "Type", "typeName");
+    const category = await Category.create({
+      name,
+      nameKey: name.toLowerCase(),
+      types: [{ name: typeName, nameKey: typeName.toLowerCase() }],
+    });
     return res.status(201).json({
       success: true,
       message: "Category added successfully",

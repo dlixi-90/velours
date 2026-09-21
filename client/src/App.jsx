@@ -3,6 +3,7 @@ import Header from "./components/Header";
 import { Route, Routes, useLocation } from "react-router-dom";
 import Footer from "./components/Footer";
 import { Toaster } from "react-hot-toast";
+import { useAppContext } from "./context/AppContext";
 
 const Home = lazy(() => import("./pages/Home"));
 const Collection = lazy(() => import("./pages/Collection"));
@@ -19,10 +20,11 @@ const ListProduct = lazy(() => import("./pages/owner/ListProduct"));
 
 const App = () => {
   const location = useLocation();
+  const { isQrPaymentActive } = useAppContext();
   const isOwnerPath = location.pathname.includes("owner");
   return (
     <main className="overflow-hidden text-tertiary">
-      {!isOwnerPath && <Header />}
+      {!isOwnerPath && !isQrPaymentActive && <Header />}
       <Toaster position="bottom-right" />
       <Suspense
         fallback={
@@ -48,7 +50,7 @@ const App = () => {
           </Route>
         </Routes>
       </Suspense>
-      {!isOwnerPath && <Footer />}
+      {!isOwnerPath && !isQrPaymentActive && <Footer />}
     </main>
   );
 };

@@ -5,6 +5,7 @@ import {
   createProduct,
   deleteProduct,
   listProduct,
+  listPopularProducts,
   singleProduct,
   toggleStock,
   updateProduct,
@@ -20,6 +21,7 @@ productRouter.post(
   createProduct,
 );
 productRouter.get("/", listProduct);
+productRouter.get("/popular", listPopularProducts);
 productRouter.get("/single", singleProduct);
 productRouter.post("/toggle-stock", authUser, requireOwner, toggleStock);
 productRouter.put(

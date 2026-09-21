@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "react-router-dom";
 import {
   Check,
   ChevronDown,
@@ -25,13 +26,19 @@ const AddCategory = () => {
     replaceCategory,
     removeCategory,
     fetchProducts,
+    navigate,
   } = useAppContext();
+  const { state: navigationState } = useLocation();
+  const returnTo = /^\/owner\/(add-product|edit-product\/[a-f0-9]{24})$/.test(navigationState?.returnTo || "")
+    ? navigationState.returnTo : null;
+  const [returnSelection, setReturnSelection] = useState(null);
   const [name, setName] = useState("");
+  const [typeName, setTypeName] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
   const [saving, setSaving] = useState(false);
   const [savingType, setSavingType] = useState(false);
-  const [expandedId, setExpandedId] = useState(null);
+  const [expandedId, setExpandedId] = useState(navigationState?.categoryId || null);
   const [search, setSearch] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -108,6 +115,8 @@ const AddCategory = () => {
         : await axios.post(url, { name: nextName }, config);
       if (!data.success) throw new Error(data.message || "Unable to save type");
       replaceCategory(data.category);
+      const savedType = data.category.types.find((item) => item.name.toLowerCase() === nextName.toLowerCase());
+      setReturnSelection({ categoryId: data.category._id, typeId: savedType?._id });
       if (typeId) await fetchProducts();
       toast.success(data.message);
       return true;
@@ -127,6 +136,11 @@ const AddCategory = () => {
     const nextName = (categoryId ? editName : name).trim().replace(/\s+/g, " ");
     if (!nextName || nextName.length > 100) {
       toast.error("Category name must contain 1 to 100 characters");
+      return;
+    }
+    const firstTypeName = typeName.trim().replace(/\s+/g, " ");
+    if (!categoryId && (!firstTypeName || firstTypeName.length > 100)) {
+      toast.error("Product type must contain 1 to 100 characters");
       return;
     }
     if (
@@ -151,7 +165,7 @@ const AddCategory = () => {
             { name: nextName },
             config,
           )
-        : await axios.post("/api/categories", { name: nextName }, config);
+        : await axios.post("/api/categories", { name: nextName, typeName: firstTypeName }, config);
       if (!data.success)
         throw new Error(data.message || "Unable to save category");
       replaceCategory(data.category);
@@ -161,6 +175,8 @@ const AddCategory = () => {
         await fetchProducts();
       } else {
         setName("");
+        setTypeName("");
+        setReturnSelection({ categoryId: data.category._id, typeId: data.category.types[0]?._id });
         setSearch("");
         setExpandedId(data.category._id);
       }
@@ -188,6 +204,16 @@ const AddCategory = () => {
               Add Category
             </h1>
           </div>
+          {returnTo && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => navigate(returnTo, { state: { categorySelection: returnSelection } })}
+              className="admin-primary-button"
+            >
+              Back to Product
+            </button>
+          )}
         </header>
 
         <div className="space-y-6">
@@ -215,6 +241,22 @@ const AddCategory = () => {
                   disabled={busy}
                 />
               </label>
+              <label className="block min-w-0 flex-1">
+                <span className="mb-2 block text-sm font-medium text-[#334957]">
+                  Product type <span className="text-[#b55f5f]">*</span>
+                </span>
+                <input
+                  type="text"
+                  value={typeName}
+                  onChange={(event) => setTypeName(event.target.value)}
+                  placeholder="e.g. Shampoo"
+                  className="admin-input"
+                  maxLength={100}
+                  autoComplete="off"
+                  required
+                  disabled={busy}
+                />
+              </label>
               <button
                 type="submit"
                 disabled={busy || categoriesLoading || Boolean(categoriesError)}
@@ -224,6 +266,9 @@ const AddCategory = () => {
                 {saving && !editingId ? "Adding category..." : "Add category"}
               </button>
             </form>
+            <p className="mt-3 text-xs text-[#71808a]">
+              Add the first product type with this category. You can add more types in the list below.
+            </p>
           </section>
 
           <section className="min-w-0 overflow-hidden rounded-2xl border border-[#e2e7e4] bg-white shadow-sm">

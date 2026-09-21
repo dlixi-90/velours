@@ -9,7 +9,8 @@ import CheckoutAddressForm from "../components/checkout/CheckoutAddressForm";
 import { useAppContext } from "../context/AppContext";
 import { assets } from "../assets/data";
 import { formatThousandsVnd } from "../utils/money";
-import { getCartItemKey } from "../utils/cartSelection";
+import { getCartItemKey, changeSizeSelection } from "../utils/cartSelection";
+import { getSizeQuantity, isSizeAvailable } from "../utils/productStock";
 import { initialCheckoutAddress } from "../utils/checkoutAddress";
 
 const CartCheckbox = ({
@@ -18,6 +19,7 @@ const CartCheckbox = ({
   label,
   indeterminate = false,
   inputRef,
+  disabled = false,
 }) => (
   <label
     className="group flex cursor-pointer items-center justify-center rounded-md p-2"
@@ -27,6 +29,7 @@ const CartCheckbox = ({
       ref={inputRef}
       type="checkbox"
       checked={checked}
+      disabled={disabled}
       onChange={onChange}
       aria-label={label}
       className="peer sr-only"
@@ -56,6 +59,7 @@ const Cart = () => {
     currency,
     cartItems,
     updateQuantity,
+    changeCartSize,
     axios,
     getToken,
   } = useAppContext();
@@ -64,6 +68,8 @@ const Cart = () => {
   const [highestStep, setHighestStep] = useState(1);
   const [createdOrder, setCreatedOrder] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUpdatingCart, setIsUpdatingCart] = useState(false);
+  const cartUpdateRef = useRef(false);
   const [checkoutAddress, setCheckoutAddress] = useState(
     initialCheckoutAddress,
   );
@@ -163,21 +169,44 @@ const Cart = () => {
     };
   }, [axios, getToken, user]);
 
+  const runCartUpdate = async (update) => {
+    if (cartUpdateRef.current) return;
+    cartUpdateRef.current = true;
+    setIsUpdatingCart(true);
+    try {
+      await update();
+    } finally {
+      cartUpdateRef.current = false;
+      setIsUpdatingCart(false);
+    }
+  };
+
+  const handleSizeChange = (productId, fromSize, toSize) => runCartUpdate(async () => {
+    const targetExists = Number(cartItems[productId]?.[toSize] ?? 0) > 0;
+    const result = await changeCartSize(productId, fromSize, toSize);
+    if (!result.success) return;
+    setDeselectedItemKeys((current) =>
+      changeSizeSelection(current, productId, fromSize, toSize, targetExists),
+    );
+    toast.success(targetExists ? "Size updated and quantities merged. Please check your selection." : "Size updated");
+  });
+
   const increment = (productId, size) => {
     const quantity = cartItems[productId]?.[size] || 0;
 
-    updateQuantity(productId, size, quantity + 1);
+    runCartUpdate(() => updateQuantity(productId, size, quantity + 1));
   };
 
   const decrement = (productId, size) => {
     const quantity = cartItems[productId]?.[size] || 0;
 
     if (quantity > 1) {
-      updateQuantity(productId, size, quantity - 1);
+      runCartUpdate(() => updateQuantity(productId, size, quantity - 1));
     }
   };
 
   const handleCheckout = () => {
+    if (cartUpdateRef.current) return;
     if (selectedItemKeys.size === 0) {
       return toast.error("Please select at least one product");
     }
@@ -213,6 +242,7 @@ const Cart = () => {
   }, []);
 
   const handleStepChange = (step) => {
+    if (cartUpdateRef.current) return;
     if (createdOrder) return;
     if (step > highestStep) return;
 
@@ -226,7 +256,7 @@ const Cart = () => {
         currentStep={currentStep}
         highestStep={highestStep}
         onStepChange={handleStepChange}
-        locked={Boolean(createdOrder)}
+        locked={Boolean(createdOrder) || isUpdatingCart}
       />
 
       {/* STEP 1 */}
@@ -242,6 +272,7 @@ const Cart = () => {
                   <div className="flex justify-center">
                     <CartCheckbox
                       inputRef={selectAllRef}
+                      disabled={isUpdatingCart}
                       checked={allItemsSelected}
                       onChange={toggleAllItems}
                       indeterminate={someItemsSelected}
@@ -280,6 +311,7 @@ const Cart = () => {
                     >
                       <div className="flex justify-center">
                         <CartCheckbox
+                          disabled={isUpdatingCart}
                           checked={isSelected}
                           onChange={() => toggleItemSelection(itemKey)}
                           label={`Select ${product.title}, size ${item.size}`}
@@ -298,15 +330,37 @@ const Cart = () => {
                         <div className="min-w-0">
                           <h5 className="h5 line-clamp-1">{product.title}</h5>
 
-                          <div className="mb-2 flex gap-2 bold-14">
+                          <label className="mb-2 flex flex-wrap items-center gap-2 text-sm">
                             <span>Size:</span>
-                            <span>{item.size}</span>
-                          </div>
+                            <select
+                              aria-label={`Size for ${product.title}, currently ${item.size}`}
+                              value={item.size}
+                              disabled={isUpdatingCart}
+                              onChange={(event) => handleSizeChange(item._id, item.size, event.target.value)}
+                              className="min-w-0 max-w-full rounded-md border border-gray-300 bg-white px-2 py-1 disabled:opacity-50"
+                            >
+                              {!product.sizes.includes(item.size) && (
+                                <option value={item.size}>{item.size} (unavailable)</option>
+                              )}
+                              {product.sizes.map((size) => {
+                                const required = quantity + (size === item.size ? 0 : Number(cartItems[item._id]?.[size] ?? 0));
+                                const available = isSizeAvailable(product, size);
+                                const enoughStock = required <= getSizeQuantity(product, size);
+                                return (
+                                  <option key={size} value={size} disabled={size !== item.size && (!available || !enoughStock)}>
+                                    {size} - {formatThousandsVnd(product.price[size], currency)}
+                                    {!available ? " (out of stock)" : !enoughStock ? " (insufficient stock)" : ""}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </label>
 
                           <div className="inline-flex items-center overflow-hidden rounded-full bg-primary ring-1 ring-slate-900/15">
                             <button
                               type="button"
                               onClick={() => decrement(item._id, item.size)}
+                              disabled={isUpdatingCart}
                               className="cursor-pointer rounded-full bg-secondary p-1.5 text-white shadow-md"
                             >
                               <img
@@ -322,6 +376,7 @@ const Cart = () => {
                             <button
                               type="button"
                               onClick={() => increment(item._id, item.size)}
+                              disabled={isUpdatingCart}
                               className="cursor-pointer rounded-full bg-secondary p-1.5 text-white shadow-md"
                             >
                               <img
@@ -344,7 +399,8 @@ const Cart = () => {
 
                       <button
                         type="button"
-                        onClick={() => updateQuantity(item._id, item.size, 0)}
+                        onClick={() => runCartUpdate(() => updateQuantity(item._id, item.size, 0))}
+                        disabled={isUpdatingCart}
                         className="mx-auto cursor-pointer"
                       >
                         <img
@@ -381,6 +437,7 @@ const Cart = () => {
             <div className="w-full rounded-xl bg-white p-5 py-10 xl:sticky xl:top-28">
               <CartTotal
                 currentStep={1}
+                isSubmitting={isUpdatingCart}
                 onCheckout={handleCheckout}
                 selectedItemKeys={selectedItemKeys}
               />

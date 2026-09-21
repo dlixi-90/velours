@@ -32,21 +32,38 @@ test("category creation rejects empty, non-string and oversized names", async ()
   }
 });
 
-test("category creation normalizes names and persists a key for case-insensitive uniqueness", async (t) => {
+test("category creation saves its required first type in the same write and normalizes both names", async (t) => {
   t.mock.method(Category, "create", async (document) => {
-    assert.deepEqual(document, { name: "Hand Care", nameKey: "hand care" });
-    return { _id: categoryId, ...document };
+    assert.deepEqual(document, {
+      name: "Hand Care", nameKey: "hand care",
+      types: [{ name: "Hand Cream", nameKey: "hand cream" }],
+    });
+    return new Category({ _id: categoryId, ...document });
   });
   const res = response();
-  await createCategory({ body: { name: "  Hand   Care  " } }, res);
+  await createCategory({ body: { name: "  Hand   Care  ", typeName: "  Hand   Cream " } }, res);
   assert.equal(res.statusCode, 201);
-  assert.deepEqual(res.body.category, { _id: categoryId, name: "Hand Care", types: [] });
+  assert.equal(res.body.category.name, "Hand Care");
+  assert.equal(res.body.category.types.length, 1);
+  assert.equal(res.body.category.types[0].name, "Hand Cream");
+  assert.ok(res.body.category.types[0]._id);
+});
+
+test("a category cannot be created without a valid product type", async (t) => {
+  const create = t.mock.method(Category, "create", async () => { throw new Error("Must not write"); });
+  for (const typeName of [undefined, null, "", "  ", 123, { name: "Cream" }, "x".repeat(101)]) {
+    const res = response();
+    await createCategory({ body: { name: "Hand Care", typeName } }, res);
+    assert.equal(res.statusCode, 400);
+    assert.match(res.body.message, /Type name/);
+  }
+  assert.equal(create.mock.callCount(), 0);
 });
 
 test("duplicate category names return a conflict", async (t) => {
   t.mock.method(Category, "create", async () => { throw { code: 11000 }; });
   const res = response();
-  await createCategory({ body: { name: "face care" } }, res);
+  await createCategory({ body: { name: "face care", typeName: "Cream" } }, res);
   assert.equal(res.statusCode, 409);
   assert.equal(res.body.success, false);
 });

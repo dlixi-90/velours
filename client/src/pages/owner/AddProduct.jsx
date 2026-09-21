@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { Check, ImagePlus, PackagePlus, Plus, Trash2, X } from "lucide-react";
 import { useAppContext } from "../../context/AppContext";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
+import { restoreProductDraft } from "../../utils/productDraft";
 
 const createEmptyImages = () => ({
   1: null,
@@ -16,14 +17,19 @@ const createEmptyInputs = () => ({
   description: "",
   ingredients: "",
   category: "",
-  type: "",
-  popular: false,
 });
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
 const AddProduct = () => {
   const { productId } = useParams();
+  const { user } = useAppContext();
+  return <ProductForm key={`${user?.id}:${productId || "new"}`} />;
+};
+
+const ProductForm = () => {
+  const { productId } = useParams();
+  const { state: navigationState } = useLocation();
 
   const {
     axios,
@@ -35,24 +41,51 @@ const AddProduct = () => {
     categoriesLoading,
     categoriesError,
     fetchCategories,
+    user,
+    productDrafts,
+    saveProductDraft,
+    clearProductDraft,
   } = useAppContext();
 
   const isEditMode = Boolean(productId);
+  const draftKey = `${user?.id}:${productId || "new"}`;
+  const [restoredDraft] = useState(() => restoreProductDraft(
+    productDrafts[draftKey], categories, navigationState?.categorySelection,
+  ));
 
-  const [images, setImages] = useState(createEmptyImages);
-  const [inputs, setInputs] = useState(createEmptyInputs);
-  const availableTypes =
-    categories.find((item) => item.name === inputs.category)?.types || [];
+  const [images, setImages] = useState(() => restoredDraft?.images || createEmptyImages());
+  const [inputs, setInputs] = useState(() => restoredDraft?.inputs || createEmptyInputs());
 
-  const [sizePrices, setSizePrices] = useState([]);
-  const [newSize, setNewSize] = useState("");
-  const [newPrice, setNewPrice] = useState("");
-  const [newQuantity, setNewQuantity] = useState("");
+  const [sizePrices, setSizePrices] = useState(() => restoredDraft?.sizePrices || []);
+  const [newSize, setNewSize] = useState(() => restoredDraft?.newSize || "");
+  const [newPrice, setNewPrice] = useState(() => restoredDraft?.newPrice || "");
+  const [newQuantity, setNewQuantity] = useState(() => restoredDraft?.newQuantity || "");
 
   const [loading, setLoading] = useState(false);
   const [imageInputVersion, setImageInputVersion] = useState(0);
 
-  const [loadedProductId, setLoadedProductId] = useState(null);
+  const [loadedProductId, setLoadedProductId] = useState(() => restoredDraft?.loadedProductId || null);
+  const [loadedUpdatedAt, setLoadedUpdatedAt] = useState(() => restoredDraft?.loadedUpdatedAt || null);
+
+  useEffect(() => {
+    if (isEditMode && loadedProductId !== productId) return;
+    const category = categories.find((item) => item.name === inputs.category);
+    saveProductDraft(draftKey, {
+      inputs, images, sizePrices, newSize, newPrice, newQuantity,
+      loadedProductId, loadedUpdatedAt,
+      categoryId: category?._id,
+    });
+  }, [categories, draftKey, images, inputs, isEditMode, loadedProductId, loadedUpdatedAt,
+    newPrice, newQuantity, newSize, productId, saveProductDraft, sizePrices]);
+
+  const manageCategoryTypes = () => {
+    navigate("/owner/add-category", {
+      state: {
+        returnTo: isEditMode ? `/owner/edit-product/${productId}` : "/owner/add-product",
+        categoryId: categories.find((item) => item.name === inputs.category)?._id,
+      },
+    });
+  };
 
   useEffect(() => {
     if (!isEditMode || loadedProductId === productId) {
@@ -72,12 +105,12 @@ const AddProduct = () => {
       description: product.description || "",
       ingredients: product.ingredients || "",
       category: product.category || "",
-      type: product.type || "",
-      popular: Boolean(product.popular),
     });
 
     setSizePrices(
       (product.sizes || []).map((size) => ({
+        id: `existing:${size}`,
+        originalSize: size,
         size,
         price: Number(product.price?.[size] ?? 0),
         quantity: Number(product.stockBySize?.[size] ?? 0),
@@ -92,13 +125,13 @@ const AddProduct = () => {
 
     setImages(loadedImages);
     setLoadedProductId(productId);
+    setLoadedUpdatedAt(product.updatedAt);
   }, [isEditMode, loadedProductId, productId, products]);
 
   const updateInput = (field, value) => {
     setInputs((currentInputs) => ({
       ...currentInputs,
       [field]: value,
-      ...(field === "category" && { type: "" }),
     }));
   };
 
@@ -134,6 +167,7 @@ const AddProduct = () => {
     setSizePrices((currentSizePrices) => [
       ...currentSizePrices,
       {
+        id: crypto.randomUUID(),
         size,
         price,
         quantity,
@@ -145,19 +179,19 @@ const AddProduct = () => {
     setNewQuantity("");
   };
 
-  const removeSizePrice = (size) => {
+  const removeSizePrice = (id) => {
     setSizePrices((currentSizePrices) =>
-      currentSizePrices.filter((item) => item.size !== size),
+      currentSizePrices.filter((item) => item.id !== id),
     );
   };
 
-  const updateSizePrice = (size, field, value) => {
+  const updateSizePrice = (id, field, value) => {
     setSizePrices((currentItems) =>
       currentItems.map((item) =>
-        item.size === size
+        item.id === id
           ? {
               ...item,
-              [field]: value === "" ? "" : Number(value),
+              [field]: field === "size" || value === "" ? value : Number(value),
             }
           : item,
       ),
@@ -200,6 +234,7 @@ const AddProduct = () => {
   };
 
   const resetForm = () => {
+    clearProductDraft(draftKey);
     setInputs(createEmptyInputs());
     setSizePrices([]);
     setNewSize("");
@@ -215,8 +250,7 @@ const AddProduct = () => {
     if (
       !inputs.title.trim() ||
       !inputs.description.trim() ||
-      !inputs.category ||
-      !inputs.type
+      !inputs.category
     ) {
       toast.error("Please fill all required fields");
       return;
@@ -224,11 +258,6 @@ const AddProduct = () => {
 
     if (sizePrices.length === 0) {
       toast.error("Please add at least one size, price and quantity");
-      return;
-    }
-
-    if (!availableTypes.some((type) => type.name === inputs.type)) {
-      toast.error("Please select a valid type for this category");
       return;
     }
 
@@ -243,6 +272,14 @@ const AddProduct = () => {
 
     if (hasInvalidVariant) {
       toast.error("Every size must have a valid price and quantity");
+      return;
+    }
+
+    const normalizedSizes = sizePrices.map(({ size }) => size.trim());
+    if (normalizedSizes.some((size) => size.length > 50 || size.includes(".") ||
+        size.startsWith("$") || ["__proto__", "constructor", "prototype"].includes(size)) ||
+        new Set(normalizedSizes.map((size) => size.toLowerCase())).size !== normalizedSizes.length) {
+      toast.error("Size names must be unique, at most 50 characters, without dots or a leading $.");
       return;
     }
 
@@ -267,9 +304,10 @@ const AddProduct = () => {
       const sizes = [];
 
       sizePrices.forEach(({ size, price, quantity }) => {
-        prices[size] = Number(price);
-        stockBySize[size] = Number(quantity);
-        sizes.push(size);
+        const name = size.trim();
+        prices[name] = Number(price);
+        stockBySize[name] = Number(quantity);
+        sizes.push(name);
       });
 
       const productData = {
@@ -277,13 +315,15 @@ const AddProduct = () => {
         description: inputs.description.trim(),
         ingredients: inputs.ingredients.trim(),
         category: inputs.category,
-        type: inputs.type,
-        popular: inputs.popular,
         price: prices,
         stockBySize,
         sizes,
         ...(isEditMode && {
           existingImages,
+          expectedUpdatedAt: loadedUpdatedAt,
+          sizeRenames: sizePrices
+            .filter((item) => item.originalSize && item.originalSize !== item.size.trim())
+            .map((item) => ({ from: item.originalSize, to: item.size.trim() })),
         }),
       };
 
@@ -308,6 +348,7 @@ const AddProduct = () => {
         : await axios.post("/api/products", formData, requestConfig);
 
       if (data.success) {
+        clearProductDraft(draftKey);
         toast.success(
           data.message ||
             (isEditMode
@@ -403,7 +444,7 @@ const AddProduct = () => {
                 />
               </Field>
 
-              <div className="grid gap-5 sm:grid-cols-2">
+              <div>
                 <Field label="Category" required>
                   <select
                     value={inputs.category}
@@ -446,50 +487,14 @@ const AddProduct = () => {
                       </button>
                     </span>
                   )}
-                </Field>
-
-                <Field label="Product type" required>
-                  <select
-                    value={inputs.type}
-                    onChange={(event) =>
-                      updateInput("type", event.target.value)
-                    }
-                    className="admin-input"
-                    required
-                    disabled={
-                      !inputs.category ||
-                      categoriesLoading ||
-                      Boolean(categoriesError) ||
-                      availableTypes.length === 0
-                    }
+                  <button
+                    type="button"
+                    onClick={manageCategoryTypes}
+                    disabled={loading}
+                    className="mt-2 text-xs font-medium text-[#496852] underline disabled:opacity-50"
                   >
-                    <option value="">
-                      {inputs.category
-                        ? "Select type"
-                        : "Select category first"}
-                    </option>
-
-                    {availableTypes.map((type) => (
-                      <option key={type._id} value={type.name}>
-                        {type.name}
-                      </option>
-                    ))}
-                  </select>
-                  {inputs.category &&
-                    !categoriesLoading &&
-                    !categoriesError &&
-                    availableTypes.length === 0 && (
-                      <span className="mt-1.5 block text-xs text-[#839099]">
-                        No types in this category yet.{" "}
-                        <button
-                          type="button"
-                          onClick={() => navigate("/owner/add-category")}
-                          className="underline"
-                        >
-                          Manage category types
-                        </button>
-                      </span>
-                    )}
+                    Add / manage categories
+                  </button>
                 </Field>
               </div>
 
@@ -563,13 +568,26 @@ const AddProduct = () => {
                   ) : (
                     sizePrices.map((item) => (
                       <div
-                        key={item.size}
+                        key={item.id}
                         className="relative rounded-lg border border-[#e0e6e2] bg-white px-4 py-4"
                       >
                         <div className="min-w-0 pr-12">
-                          <p className="text-sm font-semibold text-[#263b4a]">
-                            {item.size}
-                          </p>
+                          <label className="block">
+                            <span className="mb-1.5 block text-xs font-medium text-[#78868f]">
+                              Size <span className="text-red-600">*</span>
+                            </span>
+                            <input
+                              type="text"
+                              value={item.size}
+                              autoFocus={Boolean(navigationState?.editSize) && item.originalSize === navigationState.editSize}
+                              onChange={(event) => updateSizePrice(item.id, "size", event.target.value)}
+                              maxLength={50}
+                              required
+                              disabled={loading}
+                              className="admin-input"
+                              aria-label={`Size name ${item.originalSize || item.size}`}
+                            />
+                          </label>
 
                           <div className="mt-3 grid gap-3 sm:grid-cols-2">
                             <label>
@@ -583,7 +601,7 @@ const AddProduct = () => {
                                 value={item.price}
                                 onChange={(event) =>
                                   updateSizePrice(
-                                    item.size,
+                                    item.id,
                                     "price",
                                     event.target.value,
                                   )
@@ -604,7 +622,7 @@ const AddProduct = () => {
                                 value={item.quantity}
                                 onChange={(event) =>
                                   updateSizePrice(
-                                    item.size,
+                                    item.id,
                                     "quantity",
                                     event.target.value,
                                   )
@@ -618,7 +636,7 @@ const AddProduct = () => {
 
                         <button
                           type="button"
-                          onClick={() => removeSizePrice(item.size)}
+                          onClick={() => removeSizePrice(item.id)}
                           className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-lg text-[#a85c5c] transition hover:bg-[#fff0f0]"
                           aria-label={`Remove size ${item.size}`}
                         >
@@ -658,22 +676,9 @@ const AddProduct = () => {
                 Publishing
               </h2>
 
-              <label className="mt-4 flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-[#e2e7e4] bg-[#f8faf8] p-4">
-                <span>
-                  <span className="block text-sm font-medium text-[#263b4a]">
-                    Add to popular
-                  </span>
-                </span>
-
-                <input
-                  type="checkbox"
-                  checked={inputs.popular}
-                  onChange={(event) =>
-                    updateInput("popular", event.target.checked)
-                  }
-                  className="h-4 w-4 shrink-0 accent-[#557b5e]"
-                />
-              </label>
+              <p className="mt-4 text-sm text-[#71808a]">
+                Popular Products is ranked automatically by units sold.
+              </p>
 
               <div className="my-5 flex items-center gap-2 border-y border-[#edf0ee] py-4 text-xs text-[#71808a]">
                 <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#edf6ee] text-[#557b5e]">
