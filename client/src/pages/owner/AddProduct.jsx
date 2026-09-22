@@ -478,7 +478,7 @@ const ProductForm = () => {
                       <optgroup key={category._id} label={category.name}>
                         {category.types.map((type) => (
                           <option key={type._id} value={type._id}>
-                            {category.name} / {type.name}
+                            {type.name}
                           </option>
                         ))}
                       </optgroup>
