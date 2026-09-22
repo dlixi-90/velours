@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { Check, ImagePlus, PackagePlus, Plus, Trash2, X } from "lucide-react";
+import { Check, ImagePlus, PackagePlus, Plus, X } from "lucide-react";
 import { useAppContext } from "../../context/AppContext";
 import { useLocation, useParams } from "react-router-dom";
 import { restoreProductDraft, getProductTypeSelection } from "../../utils/productDraft";
+import { saveVariantEdit } from "../../utils/productVariantEdit";
+import ProductVariantRow from "../../components/owner/ProductVariantRow";
 
 const createEmptyImages = () => ({
   1: null,
@@ -62,6 +64,12 @@ const ProductForm = () => {
   const selectedType = selection?.type;
 
   const [sizePrices, setSizePrices] = useState(() => restoredDraft?.sizePrices || []);
+  const [variantEdits, setVariantEdits] = useState(() => {
+    const edits = restoredDraft?.variantEdits || {};
+    const target = restoredDraft?.sizePrices?.find((item) => item.originalSize === navigationState?.editSize);
+    return target && navigationState?.editSize ? { ...edits, [target.id]: edits[target.id] || { ...target } } : edits;
+  });
+  const hasVariantEdits = Object.keys(variantEdits).length > 0;
   const [newSize, setNewSize] = useState(() => restoredDraft?.newSize || "");
   const [newPrice, setNewPrice] = useState(() => restoredDraft?.newPrice || "");
   const [newQuantity, setNewQuantity] = useState(() => restoredDraft?.newQuantity || "");
@@ -75,13 +83,13 @@ const ProductForm = () => {
   useEffect(() => {
     if (isEditMode && loadedProductId !== productId) return;
     saveProductDraft(draftKey, {
-      inputs, images, sizePrices, newSize, newPrice, newQuantity,
+      inputs, images, sizePrices, variantEdits, newSize, newPrice, newQuantity,
       loadedProductId, loadedUpdatedAt,
       categoryId: selectedCategory?._id,
       typeId: selectedType?._id,
     });
   }, [categories, draftKey, images, inputs, isEditMode, loadedProductId, loadedUpdatedAt,
-    newPrice, newQuantity, newSize, productId, saveProductDraft, sizePrices, selectedCategory, selectedType]);
+    newPrice, newQuantity, newSize, productId, saveProductDraft, sizePrices, selectedCategory, selectedType, variantEdits]);
 
   const manageCategoryTypes = () => {
     navigate("/owner/add-category", {
@@ -114,15 +122,16 @@ const ProductForm = () => {
       typeId: "",
     });
 
-    setSizePrices(
-      (product.sizes || []).map((size) => ({
+    const variants = (product.sizes || []).map((size) => ({
         id: `existing:${size}`,
         originalSize: size,
         size,
         price: Number(product.price?.[size] ?? 0),
         quantity: Number(product.stockBySize?.[size] ?? 0),
-      })),
-    );
+      }));
+    setSizePrices(variants);
+    const target = variants.find((item) => item.originalSize === navigationState?.editSize);
+    if (target) setVariantEdits({ [target.id]: { ...target } });
 
     const loadedImages = createEmptyImages();
 
@@ -133,7 +142,7 @@ const ProductForm = () => {
     setImages(loadedImages);
     setLoadedProductId(productId);
     setLoadedUpdatedAt(product.updatedAt);
-  }, [isEditMode, loadedProductId, productId, products]);
+  }, [isEditMode, loadedProductId, productId, products, navigationState?.editSize]);
 
   const updateInput = (field, value) => {
     setInputs((currentInputs) => ({
@@ -187,22 +196,27 @@ const ProductForm = () => {
   };
 
   const removeSizePrice = (id) => {
+    cancelVariantEdit(id);
     setSizePrices((currentSizePrices) =>
       currentSizePrices.filter((item) => item.id !== id),
     );
   };
 
-  const updateSizePrice = (id, field, value) => {
-    setSizePrices((currentItems) =>
-      currentItems.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              [field]: field === "size" || value === "" ? value : Number(value),
-            }
-          : item,
-      ),
-    );
+  const cancelVariantEdit = (id) => {
+    setVariantEdits((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  };
+
+  const commitVariantEdit = (id) => {
+    try {
+      setSizePrices(saveVariantEdit(sizePrices, id, variantEdits[id]));
+      cancelVariantEdit(id);
+    } catch (error) {
+      toast.error(error.message);
+    }
   };
 
   const handleSizePriceKeyDown = (event) => {
@@ -244,6 +258,7 @@ const ProductForm = () => {
     clearProductDraft(draftKey);
     setInputs(createEmptyInputs());
     setSizePrices([]);
+    setVariantEdits({});
     setNewSize("");
     setNewPrice("");
     setNewQuantity("");
@@ -253,6 +268,10 @@ const ProductForm = () => {
 
   const onSubmitHandler = async (event) => {
     event.preventDefault();
+    if (hasVariantEdits) {
+      toast.error("Save or cancel the size edits before saving the product");
+      return;
+    }
 
     if (
       !inputs.title.trim() ||
@@ -456,7 +475,7 @@ const ProductForm = () => {
                 />
               </Field>
 
-              <div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Product type" required>
                   <select
                     value={selectedType?._id || ""}
@@ -509,6 +528,19 @@ const ProductForm = () => {
                   >
                     Add / manage product types
                   </button>
+                </Field>
+                <Field label="Category">
+                  <input
+                    type="text"
+                    value={selectedCategory?.name || ""}
+                    placeholder="Select a product type first"
+                    readOnly
+                    className="admin-input bg-[#f8faf8]"
+                    aria-label="Category"
+                  />
+                  <span className="mt-1 block text-xs text-[#839099]">
+                    Automatically set by the selected product type.
+                  </span>
                 </Field>
               </div>
 
@@ -581,85 +613,27 @@ const ProductForm = () => {
                     </div>
                   ) : (
                     sizePrices.map((item) => (
-                      <div
+                      <ProductVariantRow
                         key={item.id}
-                        className="relative rounded-lg border border-[#e0e6e2] bg-white px-4 py-4"
-                      >
-                        <div className="min-w-0 pr-12">
-                          <label className="block">
-                            <span className="mb-1.5 block text-xs font-medium text-[#78868f]">
-                              Size <span className="text-red-600">*</span>
-                            </span>
-                            <input
-                              type="text"
-                              value={item.size}
-                              autoFocus={Boolean(navigationState?.editSize) && item.originalSize === navigationState.editSize}
-                              onChange={(event) => updateSizePrice(item.id, "size", event.target.value)}
-                              maxLength={50}
-                              required
-                              disabled={loading}
-                              className="admin-input"
-                              aria-label={`Size name ${item.originalSize || item.size}`}
-                            />
-                          </label>
-
-                          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                            <label>
-                              <span className="mb-1.5 block text-xs font-medium text-[#78868f]">
-                                Price (thousand VND)
-                              </span>
-                              <input
-                                type="number"
-                                min="0.01"
-                                step="0.01"
-                                value={item.price}
-                                onChange={(event) =>
-                                  updateSizePrice(
-                                    item.id,
-                                    "price",
-                                    event.target.value,
-                                  )
-                                }
-                                className="admin-input"
-                                aria-label={`Price for size ${item.size}`}
-                              />
-                            </label>
-
-                            <label>
-                              <span className="mb-1.5 block text-xs font-medium text-[#78868f]">
-                                Quantity
-                              </span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="1"
-                                value={item.quantity}
-                                onChange={(event) =>
-                                  updateSizePrice(
-                                    item.id,
-                                    "quantity",
-                                    event.target.value,
-                                  )
-                                }
-                                className="admin-input"
-                                aria-label={`Quantity for size ${item.size}`}
-                              />
-                            </label>
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => removeSizePrice(item.id)}
-                          className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-lg text-[#a85c5c] transition hover:bg-[#fff0f0]"
-                          aria-label={`Remove size ${item.size}`}
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
+                        item={item}
+                        draft={variantEdits[item.id]}
+                        loading={loading}
+                        onEdit={() => setVariantEdits((current) => ({ ...current, [item.id]: { ...item } }))}
+                        onChange={(field, value) => setVariantEdits((current) => ({
+                          ...current, [item.id]: { ...current[item.id], [field]: value },
+                        }))}
+                        onSave={() => commitVariantEdit(item.id)}
+                        onCancel={() => cancelVariantEdit(item.id)}
+                        onRemove={() => removeSizePrice(item.id)}
+                      />
                     ))
                   )}
                 </div>
+                {sizePrices.length > 0 && (
+                  <p className="mt-3 text-xs text-[#71808a]">
+                    Save confirms each size edit. {isEditMode ? "Save changes" : "Add product"} saves the product.
+                  </p>
+                )}
               </div>
             </div>
           </section>
@@ -705,7 +679,7 @@ const ProductForm = () => {
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || hasVariantEdits}
                 className="admin-primary-button w-full justify-center"
               >
                 <PackagePlus size={17} />
@@ -718,6 +692,11 @@ const ProductForm = () => {
                     ? "Save changes"
                     : "Add product"}
               </button>
+              {hasVariantEdits && (
+                <p role="status" className="mt-2 text-xs text-amber-700">
+                  Save or cancel your size edits to continue.
+                </p>
+              )}
               {isEditMode && (
                 <button
                   type="button"
