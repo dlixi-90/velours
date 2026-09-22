@@ -456,7 +456,7 @@ const ProductForm = () => {
                 />
               </Field>
 
-              <div className="grid gap-5 sm:grid-cols-2">
+              <div>
                 <Field label="Product type" required>
                   <select
                     value={selectedType?._id || ""}
@@ -474,11 +474,15 @@ const ProductForm = () => {
                     disabled={categoriesLoading || Boolean(categoriesError) || loading}
                   >
                     <option value="">Select product type</option>
-                    {categories.flatMap((category) => (category.types || []).map((type) => (
-                      <option key={type._id} value={type._id}>
-                        {type.name}
-                      </option>
-                    )))}
+                    {categories.filter((category) => category.types?.length).map((category) => (
+                      <optgroup key={category._id} label={category.name}>
+                        {category.types.map((type) => (
+                          <option key={type._id} value={type._id}>
+                            {category.name} / {type.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
                   </select>
                   {categoriesLoading && (
                     <span className="mt-1 block text-xs text-[#839099]">
@@ -505,15 +509,6 @@ const ProductForm = () => {
                   >
                     Add / manage product types
                   </button>
-                </Field>
-                <Field label="Category" hint="Automatically selected from the product type.">
-                  <input
-                    type="text"
-                    value={selectedCategory?.name || ""}
-                    readOnly
-                    placeholder="Select a product type first"
-                    className="admin-input bg-[#f8faf8]"
-                  />
                 </Field>
               </div>
 
