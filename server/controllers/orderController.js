@@ -891,23 +891,50 @@ export const updateStatus = async (req, res) => {
       });
     }
 
-    order.status = status;
+    const currentStep = orderStatuses.indexOf(order.status);
+    const nextStep = orderStatuses.indexOf(status);
+
+    if (currentStep < 0 || nextStep < currentStep) {
+      return res.status(409).json({
+        success: false,
+        message: "Order status can only move forward",
+      });
+    }
+
+    if (nextStep === currentStep) {
+      return res.json({ success: true, message: "Order status unchanged", order });
+    }
+
+    const update = { status };
 
     if (
       order.paymentMethod === "COD" &&
       status === "Delivery" &&
       !order.isPaid
     ) {
-      order.isPaid = true;
-      order.paidAt = new Date();
+      update.isPaid = true;
+      update.paidAt = new Date();
     }
 
-    await order.save();
+    // Match the snapshot so a concurrent request cannot move the order backward
+    // or overwrite a payment recorded since the read above.
+    const updatedOrder = await Order.findOneAndUpdate(
+      { _id: orderId, status: order.status, isPaid: order.isPaid },
+      { $set: update },
+      { new: true, runValidators: true },
+    );
+
+    if (!updatedOrder) {
+      return res.status(409).json({
+        success: false,
+        message: "Order changed. Refresh and try again",
+      });
+    }
 
     return res.json({
       success: true,
       message: "Order status updated",
-      order,
+      order: updatedOrder,
     });
   } catch (error) {
     console.log(error.message);

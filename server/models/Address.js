@@ -45,7 +45,6 @@ const addressSchema = new mongoose.Schema(
     },
     zipcode: {
       type: String,
-      required: true,
       trim: true,
     },
     country: {

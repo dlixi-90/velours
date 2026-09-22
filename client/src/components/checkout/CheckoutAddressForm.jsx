@@ -364,7 +364,7 @@ const CheckoutAddressForm = ({
             className={field.fullWidth ? "sm:col-span-2" : ""}
           >
             <span className="mb-2 block text-sm font-medium">
-              {field.label} *
+              {field.label} <span className="text-red-500" aria-hidden="true">*</span>
             </span>
 
             <input
@@ -380,7 +380,9 @@ const CheckoutAddressForm = ({
         ))}
 
         <label>
-          <span className="mb-2 block text-sm font-medium">Country *</span>
+          <span className="mb-2 block text-sm font-medium">
+            Country <span className="text-red-500" aria-hidden="true">*</span>
+          </span>
 
           {countriesApiFailed ? (
             <input
@@ -419,7 +421,7 @@ const CheckoutAddressForm = ({
 
         <label>
           <span className="mb-2 block text-sm font-medium">
-            {address.country === "Vietnam" ? "City" : "City"} {"*"}
+            City <span className="text-red-500" aria-hidden="true">*</span>
           </span>
 
           {citiesApiFailed ? (
@@ -465,7 +467,7 @@ const CheckoutAddressForm = ({
             {address.country === "Vietnam"
               ? "Ward/ Commune"
               : "State/ Province"}{" "}
-            {"*"}
+            <span className="text-red-500" aria-hidden="true">*</span>
           </span>
 
           {address.country === "Vietnam" && !citiesApiFailed ? (
@@ -499,9 +501,10 @@ const CheckoutAddressForm = ({
         </label>
 
         <label>
-          <span className="mb-2 block text-sm font-medium">ZIP code *</span>
+          <span className="mb-2 block text-sm font-medium">
+            ZIP code (optional)
+          </span>
           <input
-            required
             type="text"
             name="zipcode"
             value={address.zipcode}

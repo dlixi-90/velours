@@ -34,7 +34,7 @@ export const addAddress = async (req, res) => {
     for (const field of addressFields) {
       const value = String(address?.[field] || "").trim();
 
-      if (!value) {
+      if (!value && field !== "zipcode") {
         return res.status(400).json({
           success: false,
           message: `${field} is required`,

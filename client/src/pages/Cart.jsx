@@ -348,7 +348,7 @@ const Cart = () => {
                                 const enoughStock = required <= getSizeQuantity(product, size);
                                 return (
                                   <option key={size} value={size} disabled={size !== item.size && (!available || !enoughStock)}>
-                                    {size} - {formatThousandsVnd(product.price[size], currency)}
+                                    {size}
                                     {!available ? " (out of stock)" : !enoughStock ? " (insufficient stock)" : ""}
                                   </option>
                                 );

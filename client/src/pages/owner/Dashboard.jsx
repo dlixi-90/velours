@@ -79,6 +79,7 @@ const Dashboard = () => {
     totalOrders: 0,
     totalRevenue: 0,
   });
+  const [updatingOrderIds, setUpdatingOrderIds] = useState([]);
 
   const requestDashboardData = useCallback(async () => {
     const { data } = await axios.get("/api/orders/", {
@@ -101,16 +102,32 @@ const Dashboard = () => {
   };
 
   const statusHandler = async (event, orderId) => {
+    const status = event.target.value;
+    const order = dashboardData.orders.find((item) => item._id === orderId);
+    const currentStep = ORDER_STATUSES.indexOf(order?.status);
+    if (
+      updatingOrderIds.includes(orderId) ||
+      currentStep < 0 ||
+      ORDER_STATUSES.indexOf(status) <= currentStep
+    ) return;
+
+    setUpdatingOrderIds((current) => [...current, orderId]);
     try {
       const { data } = await axios.post(
         "/api/orders/status",
-        { orderId, status: event.target.value },
+        { orderId, status },
         {
           headers: { Authorization: `Bearer ${await getToken()}` },
         },
       );
 
       if (data.success) {
+        setDashboardData((current) => ({
+          ...current,
+          orders: current.orders.map((item) => item._id === orderId
+            ? { ...item, status: data.order.status, isPaid: data.order.isPaid, paidAt: data.order.paidAt }
+            : item),
+        }));
         await Promise.all([getDashboardData(), fetchPopularProducts()]);
         toast.success(data.message);
       } else {
@@ -118,7 +135,10 @@ const Dashboard = () => {
       }
     } catch (error) {
       console.log(error);
-      toast.error(error.message);
+      toast.error(error.response?.data?.message || error.message);
+      if (error.response?.status === 409) await getDashboardData();
+    } finally {
+      setUpdatingOrderIds((current) => current.filter((id) => id !== orderId));
     }
   };
 
@@ -279,6 +299,7 @@ const Dashboard = () => {
                 order={order}
                 currency={currency}
                 onStatusChange={statusHandler}
+                updating={updatingOrderIds.includes(order._id)}
               />
             ))}
             {!orders.length && <EmptyState text="No orders found" />}
@@ -289,7 +310,8 @@ const Dashboard = () => {
   );
 };
 
-const OrderCard = ({ order, currency, onStatusChange }) => {
+const OrderCard = ({ order, currency, onStatusChange, updating }) => {
+  const currentStep = ORDER_STATUSES.indexOf(order.status);
   const address = order.address || {};
   const items = order.items || [];
   const customerName = [address.firstName, address.lastName]
@@ -487,13 +509,15 @@ const OrderCard = ({ order, currency, onStatusChange }) => {
           id={`status-${order._id}`}
           onChange={(event) => onStatusChange(event, order._id)}
           value={order.status}
-          className="w-full rounded-md border border-[#dfe5e8] bg-white px-3 py-2 text-xs font-semibold text-[#263b4a] outline-none transition focus:border-[#9fc4a9] focus:ring-2 focus:ring-[#dcecdf] sm:w-40"
+          disabled={updating || currentStep < 0 || currentStep === ORDER_STATUSES.length - 1}
+          aria-busy={updating}
+          className="w-full rounded-md border border-[#dfe5e8] bg-white px-3 py-2 text-xs font-semibold text-[#263b4a] outline-none transition focus:border-[#9fc4a9] focus:ring-2 focus:ring-[#dcecdf] disabled:cursor-not-allowed disabled:bg-[#f1f4f2] sm:w-40"
         >
           {!ORDER_STATUSES.includes(order.status) && (
             <option value={order.status}>{order.status}</option>
           )}
-          {ORDER_STATUSES.map((status) => (
-            <option key={status} value={status}>
+          {ORDER_STATUSES.map((status, index) => (
+            <option key={status} value={status} disabled={index < currentStep}>
               {status === "Delivery" ? "Delivered" : status}
             </option>
           ))}

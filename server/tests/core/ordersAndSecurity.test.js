@@ -264,6 +264,7 @@ test("cancelling an awaiting QR order restores stock", async () => {
 
 test("delivered COD orders are marked paid", async () => {
   const originalFindById = Order.findById;
+  const originalFindOneAndUpdate = Order.findOneAndUpdate;
   let saved = false;
   const order = {
     paymentMethod: "COD",
@@ -274,6 +275,12 @@ test("delivered COD orders are marked paid", async () => {
     },
   };
   Order.findById = async () => order;
+  Order.findOneAndUpdate = async (filter, update) => {
+    assert.deepEqual(filter, { _id: ORDER_ID, status: "Shipping", isPaid: false });
+    Object.assign(order, update.$set);
+    saved = true;
+    return order;
+  };
 
   try {
     const { state, response } = createResponse();
@@ -290,7 +297,89 @@ test("delivered COD orders are marked paid", async () => {
     assert.equal(order.paidAt instanceof Date, true);
   } finally {
     Order.findById = originalFindById;
+    Order.findOneAndUpdate = originalFindOneAndUpdate;
   }
+});
+
+test("order statuses only advance, including skipping steps, without changing paid orders", async (t) => {
+  const statuses = ["Order Placed", "Packing", "Shipping", "Delivery"];
+  const paidAt = new Date("2026-01-01T00:00:00Z");
+  let storedOrder;
+  let writes;
+  t.mock.method(Order, "findById", async () => ({ ...storedOrder }));
+  t.mock.method(Order, "findOneAndUpdate", async (filter, update) => {
+    assert.equal(filter.status, storedOrder.status);
+    assert.equal(filter.isPaid, storedOrder.isPaid);
+    writes++;
+    Object.assign(storedOrder, update.$set);
+    return { ...storedOrder };
+  });
+
+  for (const paymentMethod of ["COD", "QR"]) {
+    for (const from of statuses) {
+      for (const to of statuses) {
+        storedOrder = { status: from, paymentMethod, isPaid: true, paidAt, amount: 100 };
+        writes = 0;
+        const { state, response } = createResponse();
+        await updateStatus({ body: { orderId: ORDER_ID, status: to } }, response);
+        const backwards = statuses.indexOf(to) < statuses.indexOf(from);
+        assert.equal(state.statusCode, backwards ? 409 : 200, `${from} -> ${to}`);
+        assert.equal(state.payload.success, !backwards);
+        assert.equal(storedOrder.status, backwards ? from : to);
+        assert.equal(writes, !backwards && from !== to ? 1 : 0);
+        assert.equal(storedOrder.isPaid, true);
+        assert.equal(storedOrder.paidAt, paidAt);
+        assert.equal(storedOrder.amount, 100);
+      }
+    }
+  }
+});
+
+test("unpaid COD orders are paid only on delivery, including a direct jump", async (t) => {
+  let order;
+  t.mock.method(Order, "findById", async () => ({ ...order }));
+  t.mock.method(Order, "findOneAndUpdate", async (_filter, update) => {
+    Object.assign(order, update.$set);
+    return order;
+  });
+  for (const status of ["Packing", "Shipping", "Delivery"]) {
+    order = { status: "Order Placed", paymentMethod: "COD", isPaid: false, amount: 100 };
+    const { state, response } = createResponse();
+    await updateStatus({ body: { orderId: ORDER_ID, status } }, response);
+    assert.equal(state.payload.success, true);
+    assert.equal(order.isPaid, status === "Delivery");
+    assert.equal(order.paidAt instanceof Date, status === "Delivery");
+    assert.equal(order.amount, 100);
+  }
+});
+
+test("a stale status request cannot overwrite a concurrently delivered order", async (t) => {
+  const paidAt = new Date();
+  const storedOrder = { status: "Order Placed", paymentMethod: "COD", isPaid: false };
+  t.mock.method(Order, "findById", async () => ({ ...storedOrder }));
+  t.mock.method(Order, "findOneAndUpdate", async (filter, update) => {
+    Object.assign(storedOrder, { status: "Delivery", isPaid: true, paidAt });
+    if (filter.status !== storedOrder.status || filter.isPaid !== storedOrder.isPaid) return null;
+    Object.assign(storedOrder, update.$set);
+    return storedOrder;
+  });
+  const { state, response } = createResponse();
+  await updateStatus({ body: { orderId: ORDER_ID, status: "Packing" } }, response);
+  assert.equal(state.statusCode, 409);
+  assert.equal(storedOrder.status, "Delivery");
+  assert.equal(storedOrder.paidAt, paidAt);
+});
+
+test("payment workflow statuses cannot be changed through fulfillment updates", async (t) => {
+  let status;
+  t.mock.method(Order, "findById", async () => ({ status, paymentMethod: "QR", isPaid: false }));
+  const write = t.mock.method(Order, "findOneAndUpdate", async () => assert.fail("Unexpected write"));
+  for (status of ["Awaiting Payment", "Payment Cancelled", "Payment Expired", "Payment Review"]) {
+    const { state, response } = createResponse();
+    await updateStatus({ body: { orderId: ORDER_ID, status: "Delivery" } }, response);
+    assert.equal(state.statusCode, 409);
+  }
+  assert.equal(write.mock.callCount(), 0);
 });
 
 test("product validation rejects duplicate sizes before uploading", async () => {
