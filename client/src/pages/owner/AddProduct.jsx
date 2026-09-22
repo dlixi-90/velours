@@ -474,15 +474,11 @@ const ProductForm = () => {
                     disabled={categoriesLoading || Boolean(categoriesError) || loading}
                   >
                     <option value="">Select product type</option>
-                    {categories.filter((category) => category.types?.length).map((category) => (
-                      <optgroup key={category._id} label={category.name}>
-                        {category.types.map((type) => (
-                          <option key={type._id} value={type._id}>
-                            {type.name} — {category.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
+                    {categories.flatMap((category) => (category.types || []).map((type) => (
+                      <option key={type._id} value={type._id}>
+                        {type.name}
+                      </option>
+                    )))}
                   </select>
                   {categoriesLoading && (
                     <span className="mt-1 block text-xs text-[#839099]">
