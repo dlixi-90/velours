@@ -49,12 +49,14 @@ const normalizeProductData = (productData, currentProduct = null) => {
       : "";
   const category =
     typeof productData.category === "string" ? productData.category.trim() : "";
+  const type = typeof productData.type === "string" ? productData.type.trim() : "";
+  const typeId = productData.typeId;
   const rawSizes = Array.isArray(productData.sizes) ? productData.sizes : [];
   const sizes = rawSizes.map((size) =>
     typeof size === "string" ? size.trim() : "",
   );
 
-  if (!title || !description || !category || sizes.length === 0) {
+  if (!title || !description || (!typeId && (!category || !type)) || sizes.length === 0) {
     throw new ProductRequestError("Invalid product data");
   }
 
@@ -63,6 +65,7 @@ const normalizeProductData = (productData, currentProduct = null) => {
     description.length > 5000 ||
     ingredients.length > 5000 ||
     category.length > 100 ||
+    type.length > 100 ||
     sizes.length > 50
   ) {
     throw new ProductRequestError("Product data is too long");
@@ -111,6 +114,8 @@ const normalizeProductData = (productData, currentProduct = null) => {
     description,
     ingredients,
     category,
+    type,
+    ...(typeId !== undefined && { typeId }),
     popular: Boolean(productData.popular ?? currentProduct?.popular),
     sizes,
     price,

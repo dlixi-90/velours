@@ -66,6 +66,20 @@ test("admin rename keeps price, stock and disabled availability under the new si
   assert.equal(orders.mock.callCount(), 0);
 });
 
+test("product edit accepts only a type ID and stores the category resolved by the server", async (t) => {
+  setup(t);
+  const typeId = "507f1f77bcf86cd799439012";
+  t.mock.method(Category, "findOne", async () => ({
+    name: "Hair Care", types: [{ _id: typeId, name: "Shampoo", nameKey: "shampoo" }],
+  }));
+  const res = response();
+  await updateProduct(makeRequest({ typeId, category: undefined, type: undefined }), res);
+  assert.equal(res.body.success, true);
+  assert.equal(res.body.product.category, "Hair Care");
+  assert.equal(res.body.product.type, "Shampoo");
+  assert.equal(Object.hasOwn(res.body.product, "typeId"), false);
+});
+
 test("rename is blocked while QR holds the old size, before any writes", async (t) => {
   const { save, carts } = setup(t, { pendingQr: true });
   const res = response();

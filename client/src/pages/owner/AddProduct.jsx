@@ -3,7 +3,7 @@ import toast from "react-hot-toast";
 import { Check, ImagePlus, PackagePlus, Plus, Trash2, X } from "lucide-react";
 import { useAppContext } from "../../context/AppContext";
 import { useLocation, useParams } from "react-router-dom";
-import { restoreProductDraft } from "../../utils/productDraft";
+import { restoreProductDraft, getProductTypeSelection } from "../../utils/productDraft";
 
 const createEmptyImages = () => ({
   1: null,
@@ -17,6 +17,8 @@ const createEmptyInputs = () => ({
   description: "",
   ingredients: "",
   category: "",
+  type: "",
+  typeId: "",
 });
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -55,6 +57,9 @@ const ProductForm = () => {
 
   const [images, setImages] = useState(() => restoredDraft?.images || createEmptyImages());
   const [inputs, setInputs] = useState(() => restoredDraft?.inputs || createEmptyInputs());
+  const selection = getProductTypeSelection(categories, inputs);
+  const selectedCategory = selection?.category;
+  const selectedType = selection?.type;
 
   const [sizePrices, setSizePrices] = useState(() => restoredDraft?.sizePrices || []);
   const [newSize, setNewSize] = useState(() => restoredDraft?.newSize || "");
@@ -69,20 +74,20 @@ const ProductForm = () => {
 
   useEffect(() => {
     if (isEditMode && loadedProductId !== productId) return;
-    const category = categories.find((item) => item.name === inputs.category);
     saveProductDraft(draftKey, {
       inputs, images, sizePrices, newSize, newPrice, newQuantity,
       loadedProductId, loadedUpdatedAt,
-      categoryId: category?._id,
+      categoryId: selectedCategory?._id,
+      typeId: selectedType?._id,
     });
   }, [categories, draftKey, images, inputs, isEditMode, loadedProductId, loadedUpdatedAt,
-    newPrice, newQuantity, newSize, productId, saveProductDraft, sizePrices]);
+    newPrice, newQuantity, newSize, productId, saveProductDraft, sizePrices, selectedCategory, selectedType]);
 
   const manageCategoryTypes = () => {
     navigate("/owner/add-category", {
       state: {
         returnTo: isEditMode ? `/owner/edit-product/${productId}` : "/owner/add-product",
-        categoryId: categories.find((item) => item.name === inputs.category)?._id,
+        categoryId: selectedCategory?._id,
       },
     });
   };
@@ -105,6 +110,8 @@ const ProductForm = () => {
       description: product.description || "",
       ingredients: product.ingredients || "",
       category: product.category || "",
+      type: product.type || "",
+      typeId: "",
     });
 
     setSizePrices(
@@ -250,9 +257,14 @@ const ProductForm = () => {
     if (
       !inputs.title.trim() ||
       !inputs.description.trim() ||
-      !inputs.category
+      !selectedType
     ) {
       toast.error("Please fill all required fields");
+      return;
+    }
+
+    if (categoriesLoading || categoriesError) {
+      toast.error("Please load product types before saving");
       return;
     }
 
@@ -314,7 +326,7 @@ const ProductForm = () => {
         title: inputs.title.trim(),
         description: inputs.description.trim(),
         ingredients: inputs.ingredients.trim(),
-        category: inputs.category,
+        typeId: selectedType._id,
         price: prices,
         stockBySize,
         sizes,
@@ -444,35 +456,37 @@ const ProductForm = () => {
                 />
               </Field>
 
-              <div>
-                <Field label="Category" required>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <Field label="Product type" required>
                   <select
-                    value={inputs.category}
-                    onChange={(event) =>
-                      updateInput("category", event.target.value)
-                    }
+                    value={selectedType?._id || ""}
+                    onChange={(event) => {
+                      const next = getProductTypeSelection(categories, { typeId: event.target.value });
+                      setInputs((current) => ({
+                        ...current,
+                        typeId: next?.type._id || "",
+                        type: next?.type.name || "",
+                        category: next?.category.name || "",
+                      }));
+                    }}
                     className="admin-input"
                     required
+                    disabled={categoriesLoading || Boolean(categoriesError) || loading}
                   >
-                    <option value="">Select category</option>
-
-                    {inputs.category &&
-                      !categories.some(
-                        (item) => item.name === inputs.category,
-                      ) && (
-                        <option value={inputs.category}>
-                          {inputs.category}
-                        </option>
-                      )}
-                    {categories.map((category) => (
-                      <option key={category._id} value={category.name}>
-                        {category.name}
-                      </option>
+                    <option value="">Select product type</option>
+                    {categories.filter((category) => category.types?.length).map((category) => (
+                      <optgroup key={category._id} label={category.name}>
+                        {category.types.map((type) => (
+                          <option key={type._id} value={type._id}>
+                            {type.name} — {category.name}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                   {categoriesLoading && (
                     <span className="mt-1 block text-xs text-[#839099]">
-                      Loading categories...
+                      Loading product types...
                     </span>
                   )}
                   {categoriesError && (
@@ -493,8 +507,17 @@ const ProductForm = () => {
                     disabled={loading}
                     className="mt-2 text-xs font-medium text-[#496852] underline disabled:opacity-50"
                   >
-                    Add / manage categories
+                    Add / manage product types
                   </button>
+                </Field>
+                <Field label="Category" hint="Automatically selected from the product type.">
+                  <input
+                    type="text"
+                    value={selectedCategory?.name || ""}
+                    readOnly
+                    placeholder="Select a product type first"
+                    className="admin-input bg-[#f8faf8]"
+                  />
                 </Field>
               </div>
 

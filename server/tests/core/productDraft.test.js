@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { File } from "node:buffer";
-import { restoreProductDraft } from "../../../client/src/utils/productDraft.js";
+import { restoreProductDraft, getProductTypeSelection } from "../../../client/src/utils/productDraft.js";
 
 const categories = [{ _id: "cat", name: "Skin Care", types: [{ _id: "type", name: "Cream" }] }];
 const makeDraft = () => ({
@@ -51,4 +51,22 @@ test("removed types are cleared; absent drafts do not produce a phantom product"
   const restored = restoreProductDraft(makeDraft(), [{ ...categories[0], types: [] }]);
   assert.equal(restored.inputs.type, "");
   assert.equal(restoreProductDraft(undefined, categories), undefined);
+});
+
+test("type IDs distinguish identical type names in different categories", () => {
+  const options = [...categories, { _id: "body", name: "Body Care", types: [{ _id: "body-cream", name: "Cream" }] }];
+  assert.equal(getProductTypeSelection(options, { typeId: "type" }).category.name, "Skin Care");
+  assert.equal(getProductTypeSelection(options, { typeId: "body-cream" }).category.name, "Body Care");
+  assert.equal(getProductTypeSelection(options, { category: "Body Care", type: "Cream" }).type._id, "body-cream");
+});
+
+test("cleared or deleted selections do not fall back to an unrelated type", () => {
+  assert.equal(getProductTypeSelection(categories, { typeId: "" }), null);
+  assert.equal(getProductTypeSelection(categories, { typeId: "deleted", category: "Skin Care", type: "Cream" }), null);
+});
+
+test("returning from Add Category restores the type ID and its derived category", () => {
+  const draft = restoreProductDraft(makeDraft(), categories, { categoryId: "cat", typeId: "type" });
+  assert.equal(draft.inputs.typeId, "type");
+  assert.equal(getProductTypeSelection(categories, draft.inputs).category.name, "Skin Care");
 });

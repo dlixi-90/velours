@@ -254,6 +254,31 @@ test("product validation rejects types from another category and uses saved name
   assert.deepEqual(product, { category: "Body Care", type: "Body Oil" });
 });
 
+test("selecting a type ID determines its category even if the request names a different category", async (t) => {
+  t.mock.method(Category, "findOne", async (filter) => {
+    assert.deepEqual(filter, { "types._id": typeId });
+    return {
+      name: "Body Care",
+      types: [{ _id: typeId, name: "Lotion", nameKey: "lotion" }],
+    };
+  });
+  const product = { typeId, category: "Wrong category", type: "Wrong type" };
+  await validateProductCategory(product);
+  assert.deepEqual(product, { category: "Body Care", type: "Lotion" });
+  const withoutCategory = { typeId };
+  await validateProductCategory(withoutCategory);
+  assert.deepEqual(withoutCategory, { category: "Body Care", type: "Lotion" });
+});
+
+test("invalid and deleted type IDs cannot select an arbitrary category", async (t) => {
+  const query = t.mock.method(Category, "findOne", async () => null);
+  for (const invalidId of ["", null, "missing", { $ne: null }]) {
+    await assert.rejects(validateProductCategory({ typeId: invalidId }), (error) => error.statusCode === 400);
+  }
+  assert.equal(query.mock.callCount(), 0);
+  await assert.rejects(validateProductCategory({ typeId }), (error) => error.statusCode === 400);
+});
+
 test("owner can delete an unused category including its types", async (t) => {
   const { category, session } = mockCategory(t);
   t.mock.method(Product, "exists", (filter) => {

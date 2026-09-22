@@ -1,5 +1,6 @@
 import Category from "../models/Category.js";
 import Product from "../models/Product.js";
+import { isObjectIdOrHexString } from "mongoose";
 
 export const normalizeCategoryName = (value) =>
   typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
@@ -12,11 +13,19 @@ export const categoryNamePattern = (name) => {
 };
 
 export const validateProductCategory = async (productData) => {
-  const category = await Category.findOne({
-    nameKey: normalizeCategoryName(productData.category).toLowerCase(),
-  });
+  const hasTypeId = productData.typeId !== undefined;
+  if (hasTypeId && !isObjectIdOrHexString(productData.typeId)) {
+    throw Object.assign(new Error("Please select a valid product type"), { statusCode: 400 });
+  }
+  // New forms select a type ID. Its owning category is resolved on the server.
+  // Keep named category/type requests compatible with existing integrations.
+  const category = await Category.findOne(hasTypeId
+    ? { "types._id": productData.typeId }
+    : { nameKey: normalizeCategoryName(productData.category).toLowerCase() });
   const typeKey = normalizeCategoryName(productData.type).toLowerCase();
-  const type = category?.types.find((item) => item.nameKey === typeKey);
+  const type = category?.types.find((item) => hasTypeId
+    ? String(item._id) === String(productData.typeId)
+    : item.nameKey === typeKey);
   if (!category || !type) {
     throw Object.assign(new Error("Please select a valid type for this category"), {
       statusCode: 400,
@@ -24,6 +33,7 @@ export const validateProductCategory = async (productData) => {
   }
   productData.category = category.name;
   productData.type = type.name;
+  delete productData.typeId;
 };
 
 // Import only categories/types still used by catalog products. Deleted products
